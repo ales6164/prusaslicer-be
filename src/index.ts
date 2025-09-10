@@ -3,9 +3,12 @@
 // Accepts: .stl, .3mf, .amf, .obj
 // Returns: G-code bytes (text/plain) produced by PrusaSlicer CLI via Flatpak
 
+import { mkdir } from "node:fs/promises";
+
 const ALLOWED_EXT = new Set([".stl", ".3mf", ".amf", ".obj"]);
 const WORKDIR = `${process.env.HOME}/.local/share/prusaslicer-cli`;
-await Bun.mkdir(WORKDIR, { recursive: true });
+
+await mkdir(WORKDIR, { recursive: true });
 
 function extOf(name: string) {
     const i = name.lastIndexOf(".");
@@ -42,12 +45,12 @@ async function sliceWithPrusaSlicer(inputPath: string, outputPath: string) {
         stdout: "pipe"
     });
 
-    const [{ success, code }, stderr] = await Promise.all([
+    const [code, stderr] = await Promise.all([
         proc.exited,
         proc.stderr!.text()
     ]);
 
-    if (!success || code !== 0) {
+    if (code !== 0) {
         throw new Error(`PrusaSlicer failed (code ${code}): ${stderr}`);
     }
 }
