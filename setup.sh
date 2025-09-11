@@ -61,7 +61,7 @@ echo "[5/10] Install Flathub + PrusaSlicer"
 sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 flatpak install -y flathub com.prusa3d.PrusaSlicer
 # Host FS access for headless CLI
-flatpak override --user --filesystem=host com.prusa3d.PrusaSlicer
+sudo flatpak override --system --filesystem=host com.prusa3d.PrusaSlicer
 
 echo "[6/10] Prepare ACME webroot"
 sudo mkdir -p "${ACME_DIR}"

@@ -1,20 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Idempotent service manager.
-# - Loads repo .env
-# - Ensures systemd unit exists with EnvironmentFile and proper user
-# - Adds CAP_NET_BIND_SERVICE for :80/:443
-# - Restarts service
-#
-# Usage: bash scripts/manage_service.sh
-# Optional env overrides: SERVICE_USER, DOMAIN, HTTPS, ACME_DIR, HTTP_PORT, PORT
-
 NAME="prusaslicer-be"
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. && pwd)"
 ENV_FILE="${REPO_DIR}/.env"
 
-# Load .env if present
+# Load .env first so SERVICE_USER from .env wins
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -22,10 +13,13 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
+# Service user (do NOT default to root’s env)
 SERVICE_USER="${SERVICE_USER:-${SUDO_USER:-$USER}}"
 SERVICE_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
-BUN_DIR="${BUN_INSTALL:-$SERVICE_HOME/.bun}"
-BUN_BIN="$BUN_DIR/bin/bun"
+
+# Always compute Bun path from SERVICE_USER. Ignore ambient BUN_INSTALL.
+BUN_DIR="${SERVICE_HOME}/.bun"
+BUN_BIN="${BUN_DIR}/bin/bun"
 
 HTTPS="${HTTPS:-}"
 DOMAIN="${DOMAIN:-}"
@@ -38,13 +32,11 @@ have_cmd() { command -v "$1" >/dev/null 2>&1; }
 ensure_systemd_unit() {
   local UNIT="/etc/systemd/system/${NAME}.service"
 
-  # Hardening only for non-root
   local HARDENING=""
   if [[ "$SERVICE_USER" != "root" ]]; then
     HARDENING=$'ProtectSystem=full\nProtectHome=true\nPrivateTmp=true'
   fi
 
-  # Create/overwrite unit with EnvironmentFile + fallbacks
   local TMP
   TMP="$(mktemp)"
   cat >"$TMP" <<EOF
@@ -94,8 +86,7 @@ pm2_start() {
       exit 1
     fi
   fi
-  export BUN_INSTALL="$BUN_DIR"
-  export PATH="$BUN_DIR/bin:$PATH"
+  export PATH="${BUN_DIR}/bin:$PATH"
   if pm2 list | grep -qE " $NAME\b"; then
     pm2 restart "$NAME"
   else
