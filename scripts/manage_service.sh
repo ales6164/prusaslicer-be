@@ -1,17 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: bash ./scripts/manage_service.sh
-# Checks for systemd or pm2. If service exists → restart. Else → register and start.
+# Usage:
+#   bash scripts/manage_service.sh
+# Behavior:
+#   - If systemd unit exists -> restart it.
+#   - Else create a correct unit with resolved paths/env, enable and start.
+#   - Fallback to pm2 if systemd is unavailable.
 
 NAME="prusaslicer-be"
-PORT="${PORT:-8080}"
 
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. && pwd)"
 USER_NAME="${SUDO_USER:-$USER}"
 USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 BUN_DIR="${BUN_INSTALL:-$USER_HOME/.bun}"
 BUN_BIN="$BUN_DIR/bin/bun"
+
+# Allow overrides (setup_tls.sh passes these)
+HTTPS="${HTTPS:-}"
+DOMAIN="${DOMAIN:-}"
+ACME_DIR="${ACME_DIR:-/var/www/acme/.well-known/acme-challenge}"
+HTTP_PORT="${HTTP_PORT:-80}"
+PORT="${PORT:-8080}"
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
@@ -25,6 +35,9 @@ register_systemd() {
   echo "[service] registering systemd unit"
   UNIT_PATH="/etc/systemd/system/$NAME.service"
   TMP_UNIT="$(mktemp)"
+
+  # If HTTPS=1 we’ll bind 443; otherwise plain HTTP on PORT.
+  # Add CAP_NET_BIND_SERVICE so a non-root user can bind 80/443.
   cat >"$TMP_UNIT" <<EOF
 [Unit]
 Description=PrusaSlicer G-code microservice (Bun)
@@ -32,25 +45,30 @@ After=network.target
 
 [Service]
 Type=simple
-User=%i
-WorkingDirectory=REPO_DIR_REPLACED
-Environment=PORT=443
-Environment=HTTP_PORT=80
-Environment=HTTPS=1
-Environment=DOMAIN=your.domain.tld
-Environment=ACME_DIR=/var/www/acme
-Environment=BUN_INSTALL=USER_HOME_REPLACED/.bun
-Environment=PATH=USER_HOME_REPLACED/.bun/bin:/usr/local/bin:/usr/bin
-ExecStart=USER_HOME_REPLACED/.bun/bin/bun run REPO_DIR_REPLACED/src/index.ts
+User=${USER_NAME}
+WorkingDirectory=${REPO_DIR}
+Environment=HTTPS=${HTTPS}
+Environment=DOMAIN=${DOMAIN}
+Environment=ACME_DIR=${ACME_DIR}
+Environment=HTTP_PORT=${HTTP_PORT}
+Environment=PORT=${PORT}
+Environment=BUN_INSTALL=${BUN_DIR}
+Environment=PATH=${BUN_DIR}/bin:/usr/local/bin:/usr/bin
+ExecStart=${BUN_BIN} run ${REPO_DIR}/src/index.ts
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+# Hardening (optional)
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
   sudo mv "$TMP_UNIT" "$UNIT_PATH"
   sudo systemctl daemon-reload
   sudo systemctl enable "$NAME"
@@ -59,29 +77,25 @@ EOF
 }
 
 pm2_start() {
-  # try to install pm2 if missing
   if ! have_cmd pm2; then
     echo "[service] pm2 not found. Installing via npm..."
     if have_cmd npm; then
       sudo npm i -g pm2
     else
-      echo "[service] npm not available. Cannot install pm2 automatically."
-      echo "         Either install npm+pm2 or use systemd."
+      echo "[service] npm not available. Install npm+pm2 or use systemd."
       exit 1
     fi
   fi
-  # ensure Bun on PATH for pm2
   export BUN_INSTALL="$BUN_DIR"
   export PATH="$BUN_DIR/bin:$PATH"
 
-  if pm2 list | grep -qE " $NAME \b"; then
+  if pm2 list | grep -qE " $NAME\b"; then
     echo "[service] pm2 restart $NAME"
     pm2 restart "$NAME"
   else
     echo "[service] pm2 start"
     pm2 start "$BUN_BIN" --name "$NAME" -- run "$REPO_DIR/src/index.ts"
     pm2 save
-    # optional: create startup on boot
     pm2 startup systemd -u "$USER_NAME" --hp "$USER_HOME" >/dev/null || true
   fi
 }
@@ -93,7 +107,6 @@ main() {
       restart_systemd
       exit 0
     fi
-    # unit file may exist but not listed yet
     if [ -f "/etc/systemd/system/$NAME.service" ]; then
       echo "[service] systemd unit file found → restart"
       restart_systemd
@@ -102,7 +115,6 @@ main() {
     register_systemd
     exit 0
   fi
-
   echo "[service] systemd not available → using pm2"
   pm2_start
 }
