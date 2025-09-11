@@ -4,24 +4,35 @@ set -euo pipefail
 # Usage:
 #   bash scripts/manage_service.sh
 # Behavior:
+#   - Load .env from repo root if present (export all vars).
 #   - If systemd unit exists -> restart it.
-#   - Else create a correct unit with resolved paths/env, enable and start.
+#   - Else create a unit with resolved paths and EnvironmentFile, enable and start.
 #   - Fallback to pm2 if systemd is unavailable.
 
 NAME="prusaslicer-be"
 
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")"/.. && pwd)"
+ENV_FILE="${REPO_DIR}/.env"
+
+# Load .env if present (exported). Comments and empty lines ok.
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
 USER_NAME="${SUDO_USER:-$USER}"
 USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 BUN_DIR="${BUN_INSTALL:-$USER_HOME/.bun}"
 BUN_BIN="$BUN_DIR/bin/bun"
 
-# Allow overrides (setup_tls.sh passes these)
-HTTPS="${HTTPS:-}"
-DOMAIN="${DOMAIN:-}"
-ACME_DIR="${ACME_DIR:-/var/www/acme/.well-known/acme-challenge}"
-HTTP_PORT="${HTTP_PORT:-80}"
-PORT="${PORT:-8080}"
+# Allow CLI overrides to beat .env
+HTTPS="${HTTPS:-${HTTPS:-}}"
+DOMAIN="${DOMAIN:-${DOMAIN:-}}"
+ACME_DIR="${ACME_DIR:-${ACME_DIR:-/var/www/acme/.well-known/acme-challenge}}"
+HTTP_PORT="${HTTP_PORT:-${HTTP_PORT:-80}}"
+PORT="${PORT:-${PORT:-8080}}"
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
@@ -36,8 +47,6 @@ register_systemd() {
   UNIT_PATH="/etc/systemd/system/$NAME.service"
   TMP_UNIT="$(mktemp)"
 
-  # If HTTPS=1 we’ll bind 443; otherwise plain HTTP on PORT.
-  # Add CAP_NET_BIND_SERVICE so a non-root user can bind 80/443.
   cat >"$TMP_UNIT" <<EOF
 [Unit]
 Description=PrusaSlicer G-code microservice (Bun)
@@ -47,6 +56,9 @@ After=network.target
 Type=simple
 User=${USER_NAME}
 WorkingDirectory=${REPO_DIR}
+# Load dynamic env from repo .env if present
+EnvironmentFile=-${ENV_FILE}
+# Hard env fallbacks (used if .env unset)
 Environment=HTTPS=${HTTPS}
 Environment=DOMAIN=${DOMAIN}
 Environment=ACME_DIR=${ACME_DIR}
@@ -60,7 +72,6 @@ RestartSec=2
 NoNewPrivileges=true
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-# Hardening (optional)
 ProtectSystem=full
 ProtectHome=true
 PrivateTmp=true
@@ -107,7 +118,7 @@ main() {
       restart_systemd
       exit 0
     fi
-    if [ -f "/etc/systemd/system/$NAME.service" ]; then
+    if [[ -f "/etc/systemd/system/$NAME.service" ]]; then
       echo "[service] systemd unit file found → restart"
       restart_systemd
       exit 0
