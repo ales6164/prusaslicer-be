@@ -1,6 +1,9 @@
 # PrusaSlicer G-code microservice (Bun + Flatpak)
 
 ## Get started
+
+Tested on Ubuntu 24.04 (LTS) x64.
+
 ```bash
 sudo apt update
 sudo apt install -y git

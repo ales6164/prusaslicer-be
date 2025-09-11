@@ -52,7 +52,7 @@ fi
 
 echo "[1/10] apt update + base packages"
 sudo apt update
-sudo apt install -y curl ca-certificates flatpak certbot git python3 rsync
+sudo apt install -y curl ca-certificates flatpak certbot git python3 rsync unzip
 
 echo "[2/10] Create service user '${SERVICE_USER}' if missing"
 if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then
