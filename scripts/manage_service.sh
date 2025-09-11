@@ -32,15 +32,21 @@ After=network.target
 
 [Service]
 Type=simple
-User=$USER_NAME
-WorkingDirectory=$REPO_DIR
-Environment=PORT=$PORT
-Environment=BUN_INSTALL=$BUN_DIR
-Environment=PATH=$BUN_DIR/bin:/usr/local/bin:/usr/bin
-ExecStart=$BUN_BIN run $REPO_DIR/src/index.ts
+User=%i
+WorkingDirectory=REPO_DIR_REPLACED
+Environment=PORT=443
+Environment=HTTP_PORT=80
+Environment=HTTPS=1
+Environment=DOMAIN=your.domain.tld
+Environment=ACME_DIR=/var/www/acme
+Environment=BUN_INSTALL=USER_HOME_REPLACED/.bun
+Environment=PATH=USER_HOME_REPLACED/.bun/bin:/usr/local/bin:/usr/bin
+ExecStart=USER_HOME_REPLACED/.bun/bin/bun run REPO_DIR_REPLACED/src/index.ts
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target

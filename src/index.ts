@@ -1,28 +1,61 @@
 // Bun 1.1+
-// POST /slice  -> multipart form-data with field "file"
-// Accepts: .stl, .3mf, .amf, .obj
-// Returns: G-code bytes (text/plain) produced by PrusaSlicer CLI via Flatpak
+//
+// HTTPS + HTTP redirect + ACME route + /slice endpoint.
+// - Serves HTTP on HTTP_PORT for ACME and redirects to HTTPS when enabled.
+// - Serves HTTPS on PORT when HTTPS=1 and certificates are present.
+// - Slices uploaded models using PrusaSlicer Flatpak CLI and returns G-code.
+//
+// Env vars:
+//   PORT=443                    # HTTPS listener port when HTTPS=1 (default 8080 if HTTPS!=1)
+//   HTTP_PORT=80                # HTTP listener port for ACME + redirect (default 80)
+//   HTTPS=1                     # enable TLS when "1"
+//   DOMAIN=example.com          # used to derive default cert paths if TLS_CERT/TLS_KEY not set
+//   TLS_CERT=/etc/letsencrypt/live/<domain>/fullchain.pem
+//   TLS_KEY=/etc/letsencrypt/live/<domain>/privkey.pem
+//   ACME_DIR=/var/www/acme       # webroot for HTTP-01 challenge files
+//
+// API:
+//   GET  /                                   -> "OK"
+//   POST /slice  multipart/form-data field "file" with .stl|.3mf|.amf|.obj -> G-code
+//   GET  /.well-known/acme-challenge/<token> -> serves ACME token from ACME_DIR
+//
+// Notes:
+// - PrusaSlicer is executed via Flatpak: `flatpak run --command=prusa-slicer com.prusa3d.PrusaSlicer`
+// - A minimal FFF config `default_fff.ini` is written into WORKDIR and loaded for slicing.
 
 import { mkdir } from "node:fs/promises";
 
 const ALLOWED_EXT = new Set([".stl", ".3mf", ".amf", ".obj"]);
 const WORKDIR = `${process.env.HOME}/.local/share/prusaslicer-cli`;
+const ACME_DIR = process.env.ACME_DIR || "/var/www/acme";
 
+// Ensure working directory exists (holds temp files and a copied config)
 await mkdir(WORKDIR, { recursive: true });
 
+/**
+ * Returns lowercase file extension (including dot) or empty string.
+ */
 function extOf(name: string) {
     const i = name.lastIndexOf(".");
     return i >= 0 ? name.slice(i).toLowerCase() : "";
 }
 
+/**
+ * Generates a short unique basename for temp files.
+ */
 function randomBase(prefix: string) {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * Runs PrusaSlicer (Flatpak) in headless mode to produce G-code.
+ * Writes a bundled generic config into WORKDIR and loads it with --load.
+ * Throws on non-zero exit code with captured stderr.
+ */
 async function sliceWithPrusaSlicer(inputPath: string, outputPath: string) {
-    // Use bundled config to avoid depending on user printer profiles
-    // You can swap default_fff.ini for your own setup if needed.
     const configPath = `${WORKDIR}/default_fff.ini`;
+
+    // Write bundled config next to temp files.
     await Bun.write(
         configPath,
         await Bun.file(new URL("./default_fff.ini", import.meta.url)).arrayBuffer()
@@ -40,32 +73,25 @@ async function sliceWithPrusaSlicer(inputPath: string, outputPath: string) {
         inputPath
     ];
 
-    const proc = Bun.spawn(["flatpak", ...args], {
-        stderr: "pipe",
-        stdout: "pipe"
-    });
+    const proc = Bun.spawn(["flatpak", ...args], { stderr: "pipe", stdout: "pipe" });
+    const [code, stderr] = await Promise.all([proc.exited, proc.stderr!.text()]);
 
-    const [code, stderr] = await Promise.all([
-        proc.exited,
-        proc.stderr!.text()
-    ]);
-
-    if (code !== 0) {
-        throw new Error(`PrusaSlicer failed (code ${code}): ${stderr}`);
-    }
+    if (code !== 0) throw new Error(`PrusaSlicer failed (code ${code}): ${stderr}`);
 }
 
+/**
+ * Handles the POST /slice upload:
+ *  - Validates multipart "file" and extension
+ *  - Saves input, invokes slicer, streams back G-code as text/plain
+ *  - Cleans up temp files regardless of success
+ */
 async function handleSlice(form: FormData) {
     const file = form.get("file");
-    if (!(file instanceof File)) {
-        return new Response("field 'file' required", { status: 400 });
-    }
+    if (!(file instanceof File)) return new Response("field 'file' required", { status: 400 });
 
     const name = file.name || "model";
     const ext = extOf(name);
-    if (!ALLOWED_EXT.has(ext)) {
-        return new Response(`unsupported extension: ${ext}`, { status: 400 });
-    }
+    if (!ALLOWED_EXT.has(ext)) return new Response(`unsupported extension: ${ext}`, { status: 400 });
 
     const base = randomBase("job");
     const inPath = `${WORKDIR}/${base}${ext}`;
@@ -86,33 +112,119 @@ async function handleSlice(form: FormData) {
     } catch (err: any) {
         return new Response(`error: ${err?.message || String(err)}`, { status: 500 });
     } finally {
-        // best-effort cleanup
         try { await Bun.file(inPath).unlink(); } catch {}
         try { await Bun.file(outPath).unlink(); } catch {}
     }
 }
 
-const server = Bun.serve({
-    port: process.env.PORT ? Number(process.env.PORT) : 8080,
+/**
+ * Serves ACME HTTP-01 tokens from ACME_DIR.
+ * If the path is not an ACME challenge path, returns null.
+ */
+async function maybeServeAcme(u: URL): Promise<Response | null> {
+    if (!u.pathname.startsWith("/.well-known/acme-challenge/")) return null;
+    const token = u.pathname.split("/").pop()!;
+    if (!token || token.includes("..")) return new Response("bad token", { status: 400 });
+
+    const f = `${ACME_DIR}/${token}`;
+    try {
+        const body = await Bun.file(f).text();
+        return new Response(body, { status: 200, headers: { "Content-Type": "text/plain" } });
+    } catch {
+        return new Response("not found", { status: 404 });
+    }
+}
+
+/**
+ * Main app fetch handler used by HTTPS server (and HTTP when TLS disabled).
+ * Routes:
+ *   GET  /                                   -> "OK"
+ *   POST /slice                              -> returns G-code
+ *   GET  /.well-known/acme-challenge/<token> -> ACME token
+ */
+async function appFetch(req: Request) {
+    const u = new URL(req.url);
+
+    // ACME is available on both HTTP and HTTPS listeners
+    const acme = await maybeServeAcme(u);
+    if (acme) return acme;
+
+    if (req.method === "GET" && u.pathname === "/") {
+        return new Response("OK", { status: 200 });
+    }
+
+    if (req.method === "POST" && u.pathname === "/slice") {
+        const ct = req.headers.get("content-type") || "";
+        if (!ct.startsWith("multipart/form-data"))
+            return new Response("use multipart/form-data", { status: 415 });
+        const form = await req.formData();
+        return handleSlice(form);
+    }
+
+    return new Response("Not found", { status: 404 });
+}
+
+/**
+ * HTTP listener:
+ *  - Always listens on HTTP_PORT.
+ *  - If HTTPS is enabled, serves ACME then 301-redirects to https://
+ *  - If HTTPS is disabled, serves the app directly.
+ */
+const HTTPS_ENABLED = process.env.HTTPS === "1";
+const HTTP_PORT = Number(process.env.HTTP_PORT || 80);
+
+Bun.serve({
+    port: HTTP_PORT,
     async fetch(req) {
-        const { method, url } = req;
-        const u = new URL(url);
+        const u = new URL(req.url);
 
-        if (method === "GET" && u.pathname === "/") {
-            return new Response("OK", { status: 200 });
+        // Serve ACME tokens without redirect.
+        const acme = await maybeServeAcme(u);
+        if (acme) return acme;
+
+        if (HTTPS_ENABLED) {
+            // Redirect all other HTTP traffic to HTTPS.
+            const host = req.headers.get("host") || "";
+            const location = `https://${host}${u.pathname}${u.search}`;
+            return new Response(null, { status: 301, headers: { Location: location } });
         }
 
-        if (method === "POST" && u.pathname === "/slice") {
-            const ct = req.headers.get("content-type") || "";
-            if (!ct.startsWith("multipart/form-data")) {
-                return new Response("use multipart/form-data", { status: 415 });
-            }
-            const form = await req.formData();
-            return handleSlice(form);
-        }
-
-        return new Response("Not found", { status: 404 });
+        // TLS disabled -> serve the app on plain HTTP.
+        return appFetch(req);
     }
 });
 
-console.log(`listening on http://localhost:${server.port}`);
+console.log(`http listening on :${HTTP_PORT} (acme${HTTPS_ENABLED ? " + redirect" : " + app"})`);
+
+/**
+ * HTTPS listener:
+ *  - When HTTPS=1, binds to PORT with provided cert and key.
+ *  - Cert/key resolved from TLS_CERT/TLS_KEY or derived from DOMAIN.
+ *  - When HTTPS!=1, starts an HTTP app server on PORT (dev mode).
+ */
+const PORT = Number(process.env.PORT || (HTTPS_ENABLED ? 443 : 8080));
+
+if (HTTPS_ENABLED) {
+    const DOMAIN = process.env.DOMAIN || "";
+    const CERT = process.env.TLS_CERT || (DOMAIN ? `/etc/letsencrypt/live/${DOMAIN}/fullchain.pem` : "");
+    const KEY = process.env.TLS_KEY || (DOMAIN ? `/etc/letsencrypt/live/${DOMAIN}/privkey.pem` : "");
+
+    if (!CERT || !KEY) {
+        throw new Error("HTTPS=1 requires TLS_CERT and TLS_KEY or DOMAIN to derive default paths.");
+    }
+
+    Bun.serve({
+        port: PORT,
+        fetch: appFetch,
+        tls: {
+            cert: Bun.file(CERT),
+            key: Bun.file(KEY)
+        }
+    });
+
+    console.log(`https listening on :${PORT}`);
+} else {
+    // Dev fallback: serve the app over HTTP on PORT.
+    Bun.serve({ port: PORT, fetch: appFetch });
+    console.log(`http (app) listening on :${PORT}`);
+}

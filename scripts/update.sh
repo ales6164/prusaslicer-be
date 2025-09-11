@@ -18,5 +18,4 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 echo "[update] installing deps"
 bun install
 
-echo "[update] managing service"
-exec "$REPO_DIR/scripts/manage_service.sh"
+echo "[update] done"
