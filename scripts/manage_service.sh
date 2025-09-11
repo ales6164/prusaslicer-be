@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./scripts/manage_service.sh
+# Usage: bash ./scripts/manage_service.sh
 # Checks for systemd or pm2. If service exists → restart. Else → register and start.
 
 NAME="prusaslicer-be"
