@@ -71,18 +71,6 @@ EOF
   sudo chmod +x "${RENEW_HOOK}"
 fi
 
-echo "[7/7] Enable HTTPS in service env and restart (if systemd unit exists)"
-# Update systemd unit via your manage_service.sh, which should set:
-#   HTTPS=1
-#   DOMAIN=$DOMAIN
-#   ACME_DIR=$ACME_DIR
-#   HTTP_PORT=80
-#   PORT=443
-#   AmbientCapabilities=CAP_NET_BIND_SERVICE
-#   CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-# If unit already exists, it will restart. Else it will register then start.
-DOMAIN="$DOMAIN" ACME_DIR="$ACME_DIR" PORT=443 HTTP_PORT=80 HTTPS=1 "$REPO_DIR/scripts/manage_service.sh"
-
 # Update local .env for manual runs
 cat > "$REPO_DIR/.env" <<EOF
 HTTPS=1
