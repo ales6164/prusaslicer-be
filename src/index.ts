@@ -93,7 +93,7 @@ async function handleSlice(form: FormData) {
 }
 
 const server = Bun.serve({
-    port: process.env.PORT ? Number(process.env.PORT) : 3000,
+    port: process.env.PORT ? Number(process.env.PORT) : 8080,
     async fetch(req) {
         const { method, url } = req;
         const u = new URL(url);

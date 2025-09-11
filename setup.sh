@@ -41,3 +41,4 @@ bun install
 
 echo "OK. Bun and PrusaSlicer CLI are usable."
 echo "Start server: bun run src/index.ts"
+.
