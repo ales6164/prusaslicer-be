@@ -50,3 +50,4 @@ if [[ -f "${CERT_DIR}/fullchain.pem" && -f "${CERT_DIR}/privkey.pem" ]]; then
   echo "Existing certificate found -> skipping issuance"
 else
   sudo certbot ce
+fi
