@@ -11,3 +11,10 @@ git clone https://github.com/ales6164/prusaslicer-be.git
 cd prusaslicer-be
 bash setup.sh
 ```
+
+### Update
+
+```bash
+git pull
+bash setup.sh
+```

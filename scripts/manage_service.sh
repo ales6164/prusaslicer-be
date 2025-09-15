@@ -17,6 +17,8 @@ fi
 SERVICE_USER="${SERVICE_USER:-${SUDO_USER:-$USER}}"
 SERVICE_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
 
+if [[ "$SERVICE_USER" = "root" ]]; then echo "Refusing to install as root"; exit 1; fi
+
 # Always compute Bun path from SERVICE_USER. Ignore ambient BUN_INSTALL.
 BUN_DIR="${SERVICE_HOME}/.bun"
 BUN_BIN="${BUN_DIR}/bin/bun"
@@ -43,20 +45,27 @@ After=network.target
 
 [Service]
 Type=simple
-User=${SERVICE_USER}
-WorkingDirectory=${REPO_DIR}
-EnvironmentFile=-${ENV_FILE}
-Environment=HTTP_PORT=${HTTP_PORT}
-Environment=PORT=${PORT}
-Environment=BUN_INSTALL=${BUN_DIR}
-Environment=PATH=${BUN_DIR}/bin:/usr/local/bin:/usr/bin
-ExecStart=${BUN_BIN} run ${REPO_DIR}/src/index.ts
+User=slicer
+WorkingDirectory=/opt/prusaslicer-be
+EnvironmentFile=-/opt/prusaslicer-be/.env
+Environment=HTTP_PORT=80
+Environment=PORT=8080
+Environment=BUN_INSTALL=/home/slicer/.bun
+Environment=PATH=/home/slicer/.bun/bin:/usr/local/bin:/usr/bin
+
+# Pre-flight checks to surface clear errors
+ExecStartPre=/bin/bash -lc 'test -x /home/slicer/.bun/bin/bun || { echo "bun missing"; exit 1; }'
+ExecStartPre=/bin/bash -lc 'test -r /opt/prusaslicer-be/src/index.ts || { echo "index.ts missing"; exit 1; }'
+# Run via bash -lc to avoid $HOME/noexec, env quirks, and shebang issues
+ExecStart=/bin/bash -lc 'exec /home/slicer/.bun/bin/bun run /opt/prusaslicer-be/src/index.ts'
+
 Restart=on-failure
 RestartSec=2
+
+# Keep only what we know is safe; remove hardening that can block /home access
 NoNewPrivileges=true
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-${HARDENING}
 
 [Install]
 WantedBy=multi-user.target
