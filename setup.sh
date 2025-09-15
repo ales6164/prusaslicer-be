@@ -37,11 +37,15 @@ echo "[1/9] apt update + base packages"
 sudo apt update
 sudo apt install -y curl ca-certificates flatpak git python3 rsync unzip libcap2-bin
 
-echo "[2/9] Open firewall for HTTP"
-if sudo ufw status >/dev/null 2>&1; then
-  sudo ufw allow 80/tcp || true
-  sudo ufw --force enable || true
-fi
+echo "[2/9] No firewall protection"
+echo "To enable:"
+echo "sudo ufw allow 80/tcp || true"
+echo "sudo ufw --force enable || true"
+#echo "[2/9] Open firewall for HTTP"
+#if sudo ufw status >/dev/null 2>&1; then
+#  sudo ufw allow 80/tcp || true
+#  sudo ufw --force enable || true
+#fi
 
 echo "[3/9] Sync repo to ${TARGET_DIR}"
 sudo mkdir -p "${TARGET_DIR}"
