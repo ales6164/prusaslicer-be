@@ -21,9 +21,6 @@ SERVICE_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
 BUN_DIR="${SERVICE_HOME}/.bun"
 BUN_BIN="${BUN_DIR}/bin/bun"
 
-HTTPS="${HTTPS:-}"
-DOMAIN="${DOMAIN:-}"
-ACME_DIR="${ACME_DIR:-/var/www/acme/.well-known/acme-challenge}"
 HTTP_PORT="${HTTP_PORT:-80}"
 PORT="${PORT:-8080}"
 
@@ -49,9 +46,6 @@ Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${REPO_DIR}
 EnvironmentFile=-${ENV_FILE}
-Environment=HTTPS=${HTTPS}
-Environment=DOMAIN=${DOMAIN}
-Environment=ACME_DIR=${ACME_DIR}
 Environment=HTTP_PORT=${HTTP_PORT}
 Environment=PORT=${PORT}
 Environment=BUN_INSTALL=${BUN_DIR}

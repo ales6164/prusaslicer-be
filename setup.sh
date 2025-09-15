@@ -67,9 +67,7 @@ fi
 echo "[6/9] Install Flathub + PrusaSlicer"
 sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 flatpak install -y flathub com.prusa3d.PrusaSlicer
-# System-wide FS access for headless CLI
 sudo flatpak override --system --filesystem=host com.prusa3d.PrusaSlicer
-# Warm up CLI once
 flatpak run --command=prusa-slicer com.prusa3d.PrusaSlicer --help >/dev/null || true
 
 echo "[7/9] Install project deps as ${SERVICE_USER}"
@@ -85,7 +83,6 @@ PORT=8080
 EOF"
 
 echo "[9/9] Register/start systemd service (HTTP only)"
-# Ensure manager runs without inheriting root's BUN_INSTALL
 sudo -E SERVICE_USER="${SERVICE_USER}" env -u BUN_INSTALL bash "${TARGET_DIR}/scripts/manage_service.sh"
 
 # Optional: add 2G swap on small VMs (skip if exists)
