@@ -101,12 +101,14 @@ async function handleSlice(form: FormData) {
         await Bun.write(inPath, await file.arrayBuffer());
         await sliceWithPrusaSlicer(inPath, outPath);
 
-        const gcode = await Bun.file(outPath).bytes();
-        return new Response(gcode, {
+        //const gcode = await Bun.file(outPath).bytes();
+        return new Response(JSON.stringify({
+            inPath, outPath, base
+        }), {
             status: 200,
             headers: {
-                "Content-Type": "text/plain; charset=utf-8",
-                "Content-Disposition": `attachment; filename="${base}.gcode"`
+                "Content-Type": "application/json; charset=utf-8",
+                /*"Content-Disposition": `attachment; filename="${base}.gcode"`*/
             }
         });
     } catch (err: any) {
