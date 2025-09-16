@@ -53,20 +53,25 @@ function randomBase(prefix: string) {
  * Throws on non-zero exit code with captured stderr.
  */
 async function sliceWithPrusaSlicer(inputPath: string, outputPath: string) {
-    const configPath = `${WORKDIR}/default_fff.ini`;
+    /*const configPath = `${WORKDIR}/default_fff.ini`;
 
     // Write bundled config next to temp files.
     await Bun.write(
         configPath,
         await Bun.file(new URL("./default_fff.ini", import.meta.url)).arrayBuffer()
-    );
+    );*/
+
+    /*
+      "--export-gcode", tmpPath,
+                "--output", tmpSlicedPath
+     */
 
     const args = [
         "run",
         "--command=prusa-slicer",
         "com.prusa3d.PrusaSlicer",
-        "--load",
-        configPath,
+        /*"--load",
+        configPath,*/
         "--gcode",
         "-o",
         outputPath,
