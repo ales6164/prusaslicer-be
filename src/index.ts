@@ -120,10 +120,10 @@ async function handleSlice(form: FormData) {
 
     } catch (err: any) {
         return {body: {error: `error: ${err?.message || String(err)}`}, status: 500}
-    } finally {
+    } /*finally {
         try { await Bun.file(inPath).unlink(); } catch {}
         try { await Bun.file(outPath).unlink(); } catch {}
-    }
+    }*/
 }
 
 /**
