@@ -167,7 +167,7 @@ async function appFetch(req: Request) {
     if (acme) return acme;
 
     if (req.method === "GET" && u.pathname === "/") {
-        return new Response("OK", { status: 200, headers });
+        return new Response(WORKDIR, { status: 200, headers });
     }
 
     if (req.method === "POST" && u.pathname === "/slice") {
