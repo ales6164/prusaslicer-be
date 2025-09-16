@@ -87,11 +87,11 @@ async function sliceWithPrusaSlicer(inputPath: string, outputPath: string) {
  */
 async function handleSlice(form: FormData) {
     const file = form.get("file");
-    if (!(file instanceof File)) return new Response("field 'file' required", { status: 400 });
+    if (!(file instanceof File)) return {body: {error: "field 'file' required"}, status: 400}
 
     const name = file.name || "model";
     const ext = extOf(name);
-    if (!ALLOWED_EXT.has(ext)) return new Response(`unsupported extension: ${ext}`, { status: 400 });
+    if (!ALLOWED_EXT.has(ext)) return {body: {error: `unsupported extension: ${ext}`}, status: 400}
 
     const base = randomBase("job");
     const inPath = `${WORKDIR}/${base}${ext}`;
@@ -101,18 +101,17 @@ async function handleSlice(form: FormData) {
         await Bun.write(inPath, await file.arrayBuffer());
         await sliceWithPrusaSlicer(inPath, outPath);
 
-        //const gcode = await Bun.file(outPath).bytes();
-        return new Response(JSON.stringify({
-            inPath, outPath, base
-        }), {
+        return {
+            body: {
+                inPath, outPath, base
+            },
             status: 200,
-            headers: {
-                "Content-Type": "application/json; charset=utf-8",
-                /*"Content-Disposition": `attachment; filename="${base}.gcode"`*/
-            }
-        });
+        }
+
+        //const gcode = await Bun.file(outPath).bytes();
+
     } catch (err: any) {
-        return new Response(`error: ${err?.message || String(err)}`, { status: 500 });
+        return {body: {error: `error: ${err?.message || String(err)}`}, status: 500}
     } finally {
         try { await Bun.file(inPath).unlink(); } catch {}
         try { await Bun.file(outPath).unlink(); } catch {}
@@ -147,23 +146,43 @@ async function maybeServeAcme(u: URL): Promise<Response | null> {
 async function appFetch(req: Request) {
     const u = new URL(req.url);
 
+    const headers = {
+        "Access-Control-Allow-Origin": "*", // or specific origin
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Accept, Content-Type, Origin, Referer, Sec-Fetch-Dest, Sec-Fetch-Mode, Sec-Fetch-Site, User-Agent"
+    };
+
+    // Handle preflight OPTIONS request
+    if (req.method === "OPTIONS") {
+        return new Response(null, { status: 204, headers });
+    }
+
     // ACME is available on both HTTP and HTTPS listeners
     const acme = await maybeServeAcme(u);
     if (acme) return acme;
 
     if (req.method === "GET" && u.pathname === "/") {
-        return new Response("OK", { status: 200 });
+        return new Response("OK", { status: 200, headers });
     }
 
     if (req.method === "POST" && u.pathname === "/slice") {
         const ct = req.headers.get("content-type") || "";
         if (!ct.startsWith("multipart/form-data"))
-            return new Response("use multipart/form-data", { status: 415 });
+            return new Response("use multipart/form-data", { status: 415, headers });
         const form = await req.formData();
-        return handleSlice(form);
+        const sliced =  await handleSlice(form);
+
+        return new Response(JSON.stringify(sliced.body), {
+            status: sliced.status,
+            headers: {
+                "Content-Type": "application/json; charset=utf-8",
+                ...headers,
+                /*"Content-Disposition": `attachment; filename="${base}.gcode"`*/
+            }
+        });
     }
 
-    return new Response("Not found", { status: 404 });
+    return new Response("Not found", { status: 404, headers });
 }
 
 /**
