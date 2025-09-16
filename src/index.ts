@@ -103,7 +103,10 @@ async function handleSlice(form: FormData) {
     const outPath = `${WORKDIR}/${base}.gcode`;
 
     try {
-        await Bun.write(inPath, await file.arrayBuffer());
+        const ok = await Bun.write(inPath, await file.arrayBuffer());
+
+        if(!ok) throw new Error(`failed to write input file: ${inPath}`)
+
         await sliceWithPrusaSlicer(inPath, outPath);
 
         return {
