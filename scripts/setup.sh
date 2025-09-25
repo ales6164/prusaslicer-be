@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# scripts/setup.sh — Fedora setup for prusaslicer-be (verbose, idempotent, auto-reexec on git update)
 
 set -Eeuo pipefail
 
-log()  { printf '[OK] %s\n' "$*"; }
-info() { printf '[INFO] %s\n' "$*"; }
-warn() { printf '[WARN] %s\n' "$*"; }
-err()  { printf '[ERR] %s\n' "$*" >&2; }
+log(){ printf '[OK] %s\n' "$*"; }
+info(){ printf '[INFO] %s\n' "$*"; }
+warn(){ printf '[WARN] %s\n' "$*"; }
+err(){ printf '[ERR] %s\n' "$*" >&2; }
 
 # Must run in repo root
 [[ -f package.json && -d src ]] || { err "Run from repo root"; exit 1; }
@@ -77,36 +76,59 @@ dnf_install_or_update unzip
 dnf_install_or_update git
 dnf_install_or_update policycoreutils-python-utils || true
 
-# Bun install/update -> place in /usr/local/bin for systemd
-install_or_update_bun(){
+# ---------- Bun install/update -> place in /usr/local/bin for systemd ----------
+install_or_update_bun() {
+  set -euo pipefail
   local user_bun="$HOME/.bun/bin/bun"
   local sys_bun="/usr/local/bin/bun"
 
-  if ! command -v bun >/dev/null 2>&1 && [[ ! -x "$user_bun" ]]; then
-    info "Installing Bun (user)"
-    curl -fsSL https://bun.sh/install | bash
-  else
-    info "Bun present; upgrading if possible"
-    (command -v bun >/dev/null && bun upgrade) || true
+  # Ensure bash, not sh
+  if ! (echo "$BASH_VERSION" >/dev/null 2>&1); then
+    echo "[ERR] This script must run with bash"; exit 1
   fi
 
-  [[ -x "$user_bun" ]] || { err "Bun not found at $user_bun"; exit 1; }
-  "$user_bun" --version >/dev/null
+  # Install or upgrade user bun
+  if [[ ! -x "$user_bun" ]]; then
+    echo "[INFO] Installing Bun (user) -> $user_bun"
+    curl -fsSL https://bun.sh/install | bash
+  else
+    echo "[INFO] Upgrading Bun (user)"
+    "$user_bun" upgrade || true
+  fi
 
+  # Verify user bun runs
+  if [[ ! -x "$user_bun" ]]; then
+    echo "[ERR] Bun not found at $user_bun"; exit 1
+  fi
+  echo "[INFO] user bun --version: $("$user_bun" --version 2>&1)"
+
+  # Copy to system path for systemd
   if [[ ! -x "$sys_bun" ]] || ! cmp -s "$user_bun" "$sys_bun"; then
-    info "Copy bun -> $sys_bun"
-    $SUDO cp "$user_bun" "$sys_bun"
-    $SUDO chown root:root "$sys_bun"
-    $SUDO chmod 0755 "$sys_bun"
+    echo "[INFO] Copying $user_bun -> $sys_bun"
+    $SUDO install -m 0755 -o root -g root "$user_bun" "$sys_bun"
     command -v restorecon >/dev/null 2>&1 && $SUDO restorecon -v "$sys_bun" || true
   fi
 
-  "$sys_bun" --version >/dev/null || { err "System bun not runnable"; exit 1; }
-  log "Bun ready at $sys_bun"
+  # Rehash PATH for current shell
+  hash -r || true
+
+  # Deep diagnostics if execution fails
+  if ! "$sys_bun" --version >/dev/null 2>&1; then
+    echo "[WARN] Direct exec failed: $sys_bun --version"
+    echo "[INFO] file $sys_bun: $(file -b "$sys_bun" 2>&1)"
+    echo "[INFO] ldd $sys_bun:"
+    ldd "$sys_bun" || true
+    echo "[INFO] mount for /usr/local:"
+    findmnt -no TARGET,OPTIONS /usr/local || true
+    echo "[ERR] Cannot execute $sys_bun; check noexec mount or missing loader (/lib64/ld-linux-x86-64.so.2)."
+    exit 1
+  fi
+
   echo "$sys_bun"
 }
 
 BUN_BIN="$(install_or_update_bun)"
+info "System bun: $("$BUN_BIN" --version)"
 
 # Deps
 info "bun install"
@@ -142,7 +164,7 @@ Type=simple
 User=$(id -un)
 Group=$(id -gn)
 WorkingDirectory=${WORKDIR}
-ExecStart=${BUN_BIN} run src/server.ts
+ExecStart=/usr/local/bin/bun run src/server.ts
 Restart=on-failure
 RestartSec=3
 Environment=HOME=${HOME}
