@@ -52,7 +52,7 @@ function randomBase(prefix: string) {
  * Writes a bundled generic config into WORKDIR and loads it with --load.
  * Throws on non-zero exit code with captured stderr.
  */
-async function sliceWithPrusaSlicer(inputPath: string, outputPath: string) {
+export async function sliceWithPrusaSlicer(inputPath: string, outputPath: string) {
     /*const configPath = `${WORKDIR}/default_fff.ini`;
 
     // Write bundled config next to temp files.
