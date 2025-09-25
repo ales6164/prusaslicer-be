@@ -3,7 +3,8 @@ import {mkdir} from "node:fs/promises";
 
 const ACME_DIR = process.env.ACME_DIR || "/var/www/acme";
 const ALLOWED_EXT = new Set([".stl", ".3mf", ".amf", ".obj"]);
-const WORKDIR = `${process.env.HOME}/.local/share/prusaslicer-cli`;
+//const WORKDIR = `${process.env.HOME}/.local/share/prusaslicer-cli`;
+const WORKDIR = `./.local/share/prusaslicer-cli/temp`;
 
 // Ensure working directory exists (holds temp files and a copied config)
 await mkdir(WORKDIR, {recursive: true});
