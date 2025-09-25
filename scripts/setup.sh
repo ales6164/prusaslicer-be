@@ -123,12 +123,19 @@ User=$(id -un)
 Group=$(id -gn)
 WorkingDirectory=${WORKDIR}
 ExecStart=${BUN_BIN} start
-Restart=always
+Restart=on-failure
 RestartSec=3
 Environment=NODE_ENV=production
 Environment=PATH=${HOME}/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+# Optional: make HOME explicit for Bun and any scripts
+Environment=HOME=${HOME}
 
-# Hardening
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prusaslicer-be
+
+# Hardening (safe subset)
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
@@ -137,7 +144,8 @@ ProtectControlGroups=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 LockPersonality=true
-MemoryDenyWriteExecute=true
+# Bun needs W^X memory; do NOT enable MDWE
+MemoryDenyWriteExecute=false
 
 [Install]
 WantedBy=multi-user.target
