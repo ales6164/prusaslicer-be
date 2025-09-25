@@ -87,6 +87,7 @@ export async function sliceWithPrusaSlicer(inputPath: string, outputPath: string
      */
 
     const args = [
+        "flatpak",
         "run",
         "--command=prusa-slicer",
         "com.prusa3d.PrusaSlicer",
@@ -98,10 +99,10 @@ export async function sliceWithPrusaSlicer(inputPath: string, outputPath: string
         inputPath
     ];
 
-    const proc = Bun.spawn(["flatpak", ...args], {stderr: "pipe", stdout: "pipe"});
+    const proc = Bun.spawn(args, {stderr: "pipe", stdout: "pipe"});
     const [code, stderr] = await Promise.all([proc.exited, proc.stderr!.text()]);
 
-    if (code !== 0) throw new Error(`PrusaSlicer failed (code ${code}): ${stderr}`);
+    if (code !== 0) throw new Error(`PrusaSlicer failed (code ${code}): ${stderr} | ran: Bun.spawn([${args.join(" ")}], {stderr: "pipe", stdout: "pipe"})`);
 }
 
 
