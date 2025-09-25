@@ -42,15 +42,22 @@ export async function handleSlice(form: FormData) {
     if (!ALLOWED_EXT.has(ext)) return {body: {error: `unsupported extension: ${ext}`}, status: 400}
 
     const base = randomBase("job");
-    const inPath = path.join(os.tmpdir(), `${base}${ext}`);
-    const outPath = path.join(os.tmpdir(), `${base}.gcode`);
+    const tmpDir = os.tmpdir()
+    const inPath = path.join(tmpDir, `${base}${ext}`);
+    const outPath = path.join(tmpDir, `${base}.gcode`);
+    let tmpListResult = ""
 
     try {
         const ok = await Bun.write(inPath, file);
+        if (!ok) throw new Error(`error writing file: ${inPath}`)
 
-        if (!ok) throw new Error(`failed to write input file: ${inPath}`)
+        if (!await Bun.file(inPath).exists()) {
+            throw new Error(`failed to write input file: ${inPath}`)
+        }
+
+        tmpListResult = await listFiles(tmpDir)
     } catch (err: any) {
-        return {body: {error: `error writing: ${err?.message || String(err)}`}, status: 500}
+        return {body: {error: `error writing: ${err?.message || String(err)}`, tmpListResult}, status: 500}
     }
 
     try {
@@ -58,7 +65,7 @@ export async function handleSlice(form: FormData) {
 
         return {
             body: {
-                inPath, outPath, base
+                inPath, outPath, base, tmpListResult
             },
             status: 200,
         }
@@ -66,8 +73,18 @@ export async function handleSlice(form: FormData) {
         //const gcode = await Bun.file(outPath).bytes();
 
     } catch (err: any) {
-        return {body: {error: `error: ${err?.message || String(err)}`}, status: 500}
+        return {body: {error: `error: ${err?.message || String(err)}`, tmpListResult}, status: 500}
     }
+}
+
+async function listFiles(dir: string) {
+    const proc = Bun.spawn(["ls", "-l", "-a", dir]/*, {
+        stdin: await fetch(
+            "https://raw.githubusercontent.com/oven-sh/bun/main/examples/hashing.js",
+        ),
+    }*/);
+
+    return await proc.stdout.text();
 }
 
 /**
