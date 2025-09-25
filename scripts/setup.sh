@@ -119,32 +119,24 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=$(id -un)
-Group=$(id -gn)
-WorkingDirectory=${WORKDIR}
-ExecStart=${BUN_BIN} start
+User=root
+WorkingDirectory=/root/prusaslicer-be
+ExecStart=/root/.bun/bin/bun run src/server.ts
+Environment=HOME=/root
+Environment=NODE_ENV=production
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 Restart=on-failure
 RestartSec=3
-Environment=NODE_ENV=production
-Environment=PATH=${HOME}/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
-# Optional: make HOME explicit for Bun and any scripts
-Environment=HOME=${HOME}
-
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=prusaslicer-be
 
-# Hardening (safe subset)
+# Hardening (keep MDWE off for Bun JIT)
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=false
-ProtectControlGroups=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
 LockPersonality=true
-# Bun needs W^X memory; do NOT enable MDWE
 MemoryDenyWriteExecute=false
 
 [Install]
