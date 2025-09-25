@@ -48,27 +48,31 @@ dnf_install_or_update() {
 
 # prusa-slicer GUI package
 dnf_install_or_update "prusa-slicer"
+# git for repo updates
 dnf_install_or_update "git"
+# unzip for Bun installation
+dnf_install_or_update "unzip"
 
 # ---------- Bun install or update ----------
-# Try to find bun in PATH, else install under current user's home.
 BUN_BIN="$(command -v bun || true)"
 if [[ -z "${BUN_BIN}" ]]; then
   info "Installing Bun..."
   curl -fsSL https://bun.sh/install | bash
-  # Best-effort source common profiles to expose ~/.bun/bin
-  [[ -f "${HOME}/.bashrc"   ]] && . "${HOME}/.bashrc"   || true
-  [[ -f "${HOME}/.profile"  ]] && . "${HOME}/.profile"  || true
-  [[ -f "${HOME}/.bash_profile" ]] && . "${HOME}/.bash_profile" || true
-  BUN_BIN="$(command -v bun || true)"
-  if [[ -z "${BUN_BIN}" && -x "${HOME}/.bun/bin/bun" ]]; then
+
+  # Do NOT source ~/.bashrc; avoid /etc/bashrc with set -u
+  export PATH="${HOME}/.bun/bin:${PATH}"
+
+  if [[ -x "${HOME}/.bun/bin/bun" ]]; then
     BUN_BIN="${HOME}/.bun/bin/bun"
+  else
+    err "Bun installation did not yield an executable at ~/.bun/bin/bun"
+    exit 1
   fi
-  [[ -x "${BUN_BIN:-}" ]] || { err "Bun installation did not yield an executable"; exit 1; }
   log "Bun installed at ${BUN_BIN}"
 else
   info "Bun present at ${BUN_BIN}. Updating to latest stable..."
   "${BUN_BIN}" upgrade || warn "bun upgrade failed or already latest"
+  export PATH="$(dirname "${BUN_BIN}"):${PATH}"
   log "Bun ready: version $(${BUN_BIN} --version)"
 fi
 
