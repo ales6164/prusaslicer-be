@@ -24,6 +24,7 @@ ensure_bun() {
 }
 
 prep_dirs() {
+  sudo chmod u+s /usr/bin/bwrap
   sudo -u "$SERVICE_USER" -H mkdir -p \
     "${REPO_DIR}/.home" \
     "${REPO_DIR}/.xdg/cache" \
@@ -54,6 +55,8 @@ Environment=XDG_CACHE_HOME=${REPO_DIR}/.xdg/cache
 Environment=XDG_CONFIG_HOME=${REPO_DIR}/.xdg/config
 Environment=XDG_DATA_HOME=${REPO_DIR}/.xdg/data
 Environment=XDG_STATE_HOME=${REPO_DIR}/.xdg/state
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
 
 # Ports
 Environment=HTTP_PORT=${HTTP_PORT}
@@ -72,22 +75,22 @@ TimeoutStopSec=15
 KillSignal=SIGINT
 
 # Security
-NoNewPrivileges=true
+NoNewPrivileges=false
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=${REPO_DIR} ${REPO_DIR}/.home ${REPO_DIR}/.xdg ${REPO_DIR}/.xdg/cache ${REPO_DIR}/.xdg/config ${REPO_DIR}/.xdg/data ${REPO_DIR}/.xdg/state
-PrivateTmp=true
+PrivateTmp=false
 ProtectHostname=true
 ProtectClock=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-RestrictSUIDSGID=true
+RestrictSUIDSGID=false
 RestrictRealtime=true
-RestrictNamespaces=true
-SystemCallFilter=@system-service
+RestrictNamespaces=false
+# SystemCallFilter=@system-service
 LockPersonality=true
 
 [Install]

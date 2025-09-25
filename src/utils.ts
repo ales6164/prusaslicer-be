@@ -93,19 +93,6 @@ async function listFiles(dir: string) {
  * Throws on non-zero exit code with captured stderr.
  */
 export async function sliceWithPrusaSlicer(inputPath: string) {
-    /*const configPath = `${WORKDIR}/default_fff.ini`;
-
-    // Write bundled config next to temp files.
-    await Bun.write(
-        configPath,
-        await Bun.file(new URL("./default_fff.ini", import.meta.url)).arrayBuffer()
-    );*/
-
-    /*
-      "--export-gcode", tmpPath,
-                "--output", tmpSlicedPath
-     */
-
     const args = [
         "flatpak",
         "run",
@@ -120,10 +107,15 @@ export async function sliceWithPrusaSlicer(inputPath: string) {
     ];
 
     const proc = Bun.spawn(args, {stderr: "pipe"});
-    const [code, stderr] = await Promise.all([proc.exited, proc.stderr!.text()]);
+    const [code, stderr, stdout] = await Promise.all([
+        proc.exited,
+        proc.stderr!.text(),
+        proc.stdout!.text(),
+    ]);
 
-    if (code !== 0) throw new Error(`PrusaSlicer failed (code ${code}): ${stderr} | ran: Bun.spawn([${args.join(" ")}], {stderr: "pipe"}) | stdout: ` + await proc.stdout.text());
+    if (code !== 0) throw new Error(`PrusaSlicer failed (code ${code}): ${stderr} | ran: Bun.spawn([${args.join(" ")}], {stderr: "pipe"}) | stdout: ` + stdout);
 
+    // Return gcode as text
     return await proc.stdout.text()
 }
 
