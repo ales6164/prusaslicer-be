@@ -79,7 +79,6 @@ NoNewPrivileges=false
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 ProtectSystem=strict
-ProtectHome=read-only
 ReadWritePaths=${REPO_DIR} ${REPO_DIR}/.home ${REPO_DIR}/.xdg ${REPO_DIR}/.xdg/cache ${REPO_DIR}/.xdg/config ${REPO_DIR}/.xdg/data ${REPO_DIR}/.xdg/state
 PrivateTmp=false
 ProtectHostname=true

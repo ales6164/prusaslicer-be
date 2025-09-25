@@ -61,11 +61,11 @@ export async function handleSlice(form: FormData) {
     }
 
     try {
-        const gcode = await sliceWithPrusaSlicer(inPath);
+        const stdout = await sliceWithPrusaSlicer(inPath, outPath);
 
         return {
             body: {
-                inPath, outPath, base, tmpListResult, gcode
+                inPath, outPath, base, tmpListResult, stdout
             },
             status: 200,
         }
@@ -92,7 +92,7 @@ async function listFiles(dir: string) {
  * Writes a bundled generic config into WORKDIR and loads it with --load.
  * Throws on non-zero exit code with captured stderr.
  */
-export async function sliceWithPrusaSlicer(inputPath: string) {
+export async function sliceWithPrusaSlicer(inputPath: string, outputPath: string) {
     const args = [
         "flatpak",
         "run",
@@ -103,6 +103,8 @@ export async function sliceWithPrusaSlicer(inputPath: string) {
         "--gcode",
         "--loglevel",
         "2",
+        "-o",
+        outputPath,
         inputPath
     ];
 
