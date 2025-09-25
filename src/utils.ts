@@ -51,9 +51,14 @@ export async function sliceWithPrusaSlicer(inputPath: string, outputPath: string
         outputPath
     ];
 
-    const {stderr, stdout, exitCode, success} = Bun.spawnSync(args);
+    const proc = Bun.spawn(args, {stderr: "pipe", stdout: "pipe"});
+    const [code, stderr, stdout] = await Promise.all([
+        proc.exited,
+        proc.stderr!.text(),
+        proc.stdout!.text()
+    ]);
 
-    if (success) throw new Error(`PrusaSlicer failed (code ${exitCode}): ${stderr.toString()}`);
+    if (code !== 0) throw new Error(`PrusaSlicer failed (code ${code}): ${stderr}`);
 
     // Return stdout as text
     return stdout.toString()

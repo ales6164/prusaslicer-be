@@ -109,6 +109,52 @@ async function appFetch(req: Request) {
         }
     }
 
+    if (req.method === "POST" && u.pathname === "/test") {
+        const ct = req.headers.get("content-type") || "";
+        if (!ct.startsWith("multipart/form-data"))
+            return new Response("use multipart/form-data", {status: 415, headers});
+        const form = await req.formData();
+
+        const file = form.get("file");
+        if (!(file instanceof File)) return new Response("no file", {status: 400, headers});
+
+        const name = file.name || "model";
+        const ext = extOf(name);
+        if (!ALLOWED_EXT.has(ext)) return new Response(`unsupported extension: ${ext}`, {status: 400, headers});
+
+        const base = randomBase("job");
+        const tmpDir = tmpdir()
+        const inPath = join(tmpDir, `${base}${ext}`);
+        const outPath = join(tmpDir, `${base}.gcode`);
+
+        try {
+            const ok = await Bun.write(inPath, file);
+            if (!ok) return new Response("failed to write input file", {status: 400, headers});
+            if (!await Bun.file(inPath).exists()) return new Response("input file does not exist after writing", {
+                status: 500,
+                headers
+            });
+        } catch (err: any) {
+            return new Response(`error writing input file: ${err?.message || String(err)}`, {status: 500, headers});
+        }
+
+        try {
+            //handleSlice(inPath, outPath);
+            //const result = await handleSlice(inPath, outPath);
+
+            return new Response(JSON.stringify({inPath, outPath}), {
+                status: 200,
+                headers: {
+                    "Content-Type": "application/json; charset=utf-8",
+                    ...headers,
+                    /*"Content-Disposition": `attachment; filename="${base}.gcode"`*/
+                }
+            });
+        } catch (err: any) {
+            return new Response(`slicing error: ${err?.message || String(err)}`, {status: 500, headers});
+        }
+    }
+
     return new Response("not found", {status: 404, headers});
 }
 
