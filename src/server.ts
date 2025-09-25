@@ -84,7 +84,10 @@ async function appFetch(req: Request) {
         try {
             const ok = await Bun.write(inPath, file);
             if (!ok) return new Response("failed to write input file", {status: 400, headers});
-            if (!await Bun.file(inPath).exists()) return new Response("input file does not exist after writing", {status: 500, headers});
+            if (!await Bun.file(inPath).exists()) return new Response("input file does not exist after writing", {
+                status: 500,
+                headers
+            });
         } catch (err: any) {
             return new Response(`error writing input file: ${err?.message || String(err)}`, {status: 500, headers});
         }
@@ -110,6 +113,7 @@ async function appFetch(req: Request) {
 
 Bun.serve({
     port: HTTP_PORT,
+    idleTimeout: 60 * 20, // 20 minutes
     async fetch(req) {
         return appFetch(req);
     }
