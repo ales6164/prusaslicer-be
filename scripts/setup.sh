@@ -33,6 +33,7 @@ command -v dnf >/dev/null || { err "dnf not found"; exit 1; }
 command -v curl >/dev/null || { err "curl not found"; exit 1; }
 command -v systemctl >/dev/null || { err "systemctl not found"; exit 1; }
 
+
 # ---------- dnf install or update ----------
 dnf_install_or_update() {
   local pkg="$1"
@@ -52,6 +53,23 @@ dnf_install_or_update "prusa-slicer"
 dnf_install_or_update "git"
 # unzip for Bun installation
 dnf_install_or_update "unzip"
+
+# Pull latest changes from repo
+if command -v git >/dev/null 2>&1; then
+  if [[ -d ".git" ]]; then
+    info "Pulling latest changes from git..."
+    git fetch --all --prune
+    if ! git merge --ff-only @{u}; then
+      warn "git pull failed (divergence?) – manual resolution needed"
+    else
+      log "Git repo up to date"
+    fi
+  else
+    warn "Not a git repo (no .git); skipping git pull"
+  fi
+else
+  warn "git not found; skipping git pull"
+fi
 
 # ---------- Bun install or update ----------
 BUN_BIN="$(command -v bun || true)"
@@ -104,7 +122,7 @@ Type=simple
 User=$(id -un)
 Group=$(id -gn)
 WorkingDirectory=${WORKDIR}
-ExecStart=${BUN_BIN} run src/server.ts
+ExecStart=${BUN_BIN} start
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
