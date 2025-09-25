@@ -6,7 +6,7 @@ const ALLOWED_EXT = new Set([".stl", ".3mf", ".amf", ".obj"]);
 const WORKDIR = `${process.env.HOME}/.local/share/prusaslicer-cli`;
 
 // Ensure working directory exists (holds temp files and a copied config)
-await mkdir(WORKDIR, { recursive: true });
+await mkdir(WORKDIR, {recursive: true});
 
 
 /**
@@ -45,8 +45,12 @@ export async function handleSlice(form: FormData) {
     try {
         const ok = await Bun.write(inPath, await file.arrayBuffer());
 
-        if(!ok) throw new Error(`failed to write input file: ${inPath}`)
+        if (!ok) throw new Error(`failed to write input file: ${inPath}`)
+    } catch (err: any) {
+        return {body: {error: `error writing: ${err?.message || String(err)}`}, status: 500}
+    }
 
+    try {
         await sliceWithPrusaSlicer(inPath, outPath);
 
         return {
@@ -60,10 +64,7 @@ export async function handleSlice(form: FormData) {
 
     } catch (err: any) {
         return {body: {error: `error: ${err?.message || String(err)}`}, status: 500}
-    } /*finally {
-        try { await Bun.file(inPath).unlink(); } catch {}
-        try { await Bun.file(outPath).unlink(); } catch {}
-    }*/
+    }
 }
 
 /**
@@ -97,7 +98,7 @@ export async function sliceWithPrusaSlicer(inputPath: string, outputPath: string
         inputPath
     ];
 
-    const proc = Bun.spawn(["flatpak", ...args], { stderr: "pipe", stdout: "pipe" });
+    const proc = Bun.spawn(["flatpak", ...args], {stderr: "pipe", stdout: "pipe"});
     const [code, stderr] = await Promise.all([proc.exited, proc.stderr!.text()]);
 
     if (code !== 0) throw new Error(`PrusaSlicer failed (code ${code}): ${stderr}`);
@@ -111,14 +112,14 @@ export async function sliceWithPrusaSlicer(inputPath: string, outputPath: string
 export async function maybeServeAcme(u: URL): Promise<Response | null> {
     if (!u.pathname.startsWith("/.well-known/acme-challenge/")) return null;
     const token = u.pathname.split("/").pop()!;
-    if (!token || token.includes("..")) return new Response("bad token", { status: 400 });
+    if (!token || token.includes("..")) return new Response("bad token", {status: 400});
 
     const f = `${ACME_DIR}/${token}`;
     try {
         const body = await Bun.file(f).text();
-        return new Response(body, { status: 200, headers: { "Content-Type": "text/plain" } });
+        return new Response(body, {status: 200, headers: {"Content-Type": "text/plain"}});
     } catch {
-        return new Response("not found", { status: 404 });
+        return new Response("not found", {status: 404});
     }
 }
 
@@ -141,7 +142,7 @@ export async function appFetch(req: Request) {
 
     // Handle preflight OPTIONS request
     if (req.method === "OPTIONS") {
-        return new Response(null, { status: 204, headers });
+        return new Response(null, {status: 204, headers});
     }
 
     // ACME is available on both HTTP and HTTPS listeners
@@ -149,15 +150,15 @@ export async function appFetch(req: Request) {
     if (acme) return acme;
 
     if (req.method === "GET" && u.pathname === "/") {
-        return new Response(WORKDIR, { status: 200, headers });
+        return new Response(WORKDIR, {status: 200, headers});
     }
 
     if (req.method === "POST" && u.pathname === "/slice") {
         const ct = req.headers.get("content-type") || "";
         if (!ct.startsWith("multipart/form-data"))
-            return new Response("use multipart/form-data", { status: 415, headers });
+            return new Response("use multipart/form-data", {status: 415, headers});
         const form = await req.formData();
-        const sliced =  await handleSlice(form);
+        const sliced = await handleSlice(form);
 
         return new Response(JSON.stringify(sliced.body), {
             status: sliced.status,
@@ -169,5 +170,5 @@ export async function appFetch(req: Request) {
         });
     }
 
-    return new Response("Not found", { status: 404, headers });
+    return new Response("Not found", {status: 404, headers});
 }
