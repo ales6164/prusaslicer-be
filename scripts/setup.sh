@@ -1,117 +1,167 @@
 #!/usr/bin/env bash
-# scripts/setup.sh
-# Fedora setup for PrusaSlicer + Bun for the already-cloned prusaslicer-be repo.
-# Assumptions:
-# - You already installed git and cloned this repo.
-# - You run this from inside the repo directory (prusaslicer-be).
-# Actions:
-# - Install or update prusa-slicer via dnf.
-# - Install or update Bun.
-# - Run `bun install`.
-# - Create/refresh a systemd service that runs `bun run src/server.ts`.
+# scripts/setup.sh — ultra-verbose Fedora setup for prusaslicer-be
+# Run from repo root: bash ./scripts/setup.sh
 
-set -euo pipefail
+###############################################################################
+# Strict + rich tracing
+###############################################################################
+set -Eeuo pipefail
+export LC_ALL=C
+export LANG=C
+export TZ=UTC
 
-# ---------- helpers ----------
-log()  { printf "\033[1;32m[OK]\033[0m %s\n" "$*"; }
-info() { printf "\033[1;34m[INFO]\033[0m %s\n" "$*"; }
-warn() { printf "\033[1;33m[WARN]\033[0m %s\n" "$*"; }
-err()  { printf "\033[1;31m[ERR]\033[0m %s\n" "$*" >&2; }
+# Timestamped xtrace
+export PS4='+ [${EPOCHREALTIME}] ${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:-main}() -> '
+set -x
 
-# Must be executed from repo root
-if [[ ! -f "package.json" || ! -d "src" ]]; then
-  err "Run this script from the prusaslicer-be repo root (found no package.json/src)"
-  exit 1
-fi
+# Error trap with context
+trap 'rc=$?; echo "[FATAL] exit $rc at ${BASH_SOURCE}:${LINENO} in ${FUNCNAME[0]:-main}"; exit $rc' ERR
 
-# SUDO helper. If already root, no sudo.
+###############################################################################
+# Helpers
+###############################################################################
+log()  { printf '[OK] %s\n' "$*" ; }
+info() { printf '[INFO] %s\n' "$*" ; }
+warn() { printf '[WARN] %s\n' "$*" ; }
+err()  { printf '[ERR] %s\n' "$*" >&2 ; }
+
 SUDO=sudo
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then SUDO=""; fi
 
-# Required base tools
-command -v dnf >/dev/null || { err "dnf not found"; exit 1; }
-command -v curl >/dev/null || { err "curl not found"; exit 1; }
-command -v systemctl >/dev/null || { err "systemctl not found"; exit 1; }
+require_cmd() { command -v "$1" >/dev/null 2>&1 || { err "missing cmd: $1"; exit 127; }; }
 
-
-# ---------- dnf install or update ----------
 dnf_install_or_update() {
   local pkg="$1"
   if rpm -q "$pkg" >/dev/null 2>&1; then
-    info "Updating $pkg to latest available..."
-    $SUDO dnf upgrade --refresh -y "$pkg" || warn "dnf upgrade $pkg failed or already latest"
+    info "dnf upgrade --refresh -y $pkg"
+    $SUDO dnf upgrade --refresh -y "$pkg" || warn "upgrade $pkg failed or latest"
   else
-    info "Installing $pkg..."
+    info "dnf install -y $pkg"
     $SUDO dnf install -y "$pkg"
   fi
-  log "$pkg ready"
+  rpm -q "$pkg" || { err "$pkg not installed after dnf"; exit 1; }
 }
 
-# prusa-slicer GUI package
-dnf_install_or_update "prusa-slicer"
-# git for repo updates
-dnf_install_or_update "git"
-# unzip for Bun installation
-dnf_install_or_update "unzip"
+check_file_exec() {
+  local p="$1"
+  [[ -f "$p" ]] || { err "not a file: $p"; return 1; }
+  [[ -x "$p" ]] || { err "not executable: $p"; return 1; }
+  file "$p" || true
+  ldd "$p" || true
+}
 
-# Pull latest changes from repo
-if command -v git >/dev/null 2>&1; then
-  if [[ -d ".git" ]]; then
-    info "Pulling latest changes from git..."
-    git fetch --all --prune
-    if ! git merge --ff-only @{u}; then
-      warn "git pull failed (divergence?) – manual resolution needed"
-    else
-      log "Git repo up to date"
-    fi
-  else
-    warn "Not a git repo (no .git); skipping git pull"
-  fi
-else
-  warn "git not found; skipping git pull"
+###############################################################################
+# Preamble: print context
+###############################################################################
+info "whoami=$(id -un) uid=$(id -u) gid=$(id -g) home=$HOME shell=$SHELL"
+info "pwd=$(pwd)"
+info "ls -la repo root:"
+ls -la
+info "uname -a:"
+uname -a
+info "Fedora release:"
+cat /etc/os-release || true
+info "PATH=$PATH"
+
+# Validate we are in repo root
+[[ -f package.json && -d src ]] || { err "Run from repo root (missing package.json or src)"; exit 1; }
+
+###############################################################################
+# Repos and tooling
+###############################################################################
+require_cmd dnf
+require_cmd curl
+require_cmd systemctl
+require_cmd bash
+require_cmd tee
+
+# Optional: ensure journald is persistent so we get logs
+if [[ ! -d /var/log/journal ]]; then
+  info "Enabling persistent journald"
+  $SUDO mkdir -p /var/log/journal
+  $SUDO systemctl restart systemd-journald
+fi
+$SUDO systemctl is-active systemd-journald || $SUDO systemctl start systemd-journald || true
+
+# Packages
+dnf_install_or_update prusa-slicer
+dnf_install_or_update unzip
+dnf_install_or_update git
+
+###############################################################################
+# Git sanity: make sure repo is cleanly pulled (optional but logged)
+###############################################################################
+if [[ -d .git ]]; then
+  info "git remote -v:"; git remote -v || true
+  info "git status -sb:"; git status -sb || true
+  info "git fetch --all --prune"
+  git fetch --all --prune || warn "git fetch failed"
+  info "git rev-parse HEAD && git show -s --format=%ci HEAD"
+  git rev-parse HEAD && git show -s --format=%ci HEAD || true
 fi
 
-# ---------- Bun install or update ----------
+###############################################################################
+# Bun install or update with zero RC-file sourcing
+###############################################################################
 BUN_BIN="$(command -v bun || true)"
 if [[ -z "${BUN_BIN}" ]]; then
-  info "Installing Bun..."
+  info "Installing Bun via official script"
   curl -fsSL https://bun.sh/install | bash
-
-  # Do NOT source ~/.bashrc; avoid /etc/bashrc with set -u
   export PATH="${HOME}/.bun/bin:${PATH}"
-
-  if [[ -x "${HOME}/.bun/bin/bun" ]]; then
-    BUN_BIN="${HOME}/.bun/bin/bun"
-  else
-    err "Bun installation did not yield an executable at ~/.bun/bin/bun"
-    exit 1
-  fi
-  log "Bun installed at ${BUN_BIN}"
+  BUN_BIN="${HOME}/.bun/bin/bun"
+  check_file_exec "$BUN_BIN"
+  "$BUN_BIN" --version
+  log "Bun installed at $BUN_BIN"
 else
-  info "Bun present at ${BUN_BIN}. Updating to latest stable..."
-  "${BUN_BIN}" upgrade || warn "bun upgrade failed or already latest"
-  export PATH="$(dirname "${BUN_BIN}"):${PATH}"
-  log "Bun ready: version $(${BUN_BIN} --version)"
+  info "Found Bun at $BUN_BIN"
+  "$BUN_BIN" --version || true
+  info "bun upgrade"
+  "$BUN_BIN" upgrade || warn "bun upgrade failed or already latest"
+  export PATH="$(dirname "$BUN_BIN"):${PATH}"
+  "$BUN_BIN" --version
 fi
 
-# ---------- bun install in repo ----------
-info "Installing dependencies with Bun..."
-"${BUN_BIN}" install
-log "Dependencies installed"
+# Prove Bun can execute in this shell
+info "Bun self-check"
+"$BUN_BIN" -e 'console.log("bun-ok")'
 
-# ---------- systemd service setup ----------
-# Service will run as the current user. If you run this as root, service runs as root.
+###############################################################################
+# Dependencies
+###############################################################################
+info "bun install"
+"$BUN_BIN" install
+
+###############################################################################
+# Preflight: run the app like systemd will (same cwd, same command)
+###############################################################################
+# Determine Exec command exactly as unit will use
+EXEC_CMD=("$BUN_BIN" run src/server.ts)
+
+info "Dry-run server preflight (5s timeout). This will fail fast if ExecStart is wrong."
+set +e
+( setsid bash -c "cd '$(pwd)'; exec ${EXEC_CMD[*]}" ) &
+app_pid=$!
+sleep 5
+if ps -p "$app_pid" >/dev/null 2>&1; then
+  info "Preflight server is running (pid $app_pid). Killing to continue."
+  kill "$app_pid" || true
+  sleep 1
+  kill -9 "$app_pid" 2>/dev/null || true
+  preflight_ok=1
+else
+  warn "Preflight server not detected running after 5s. This may be fine if it exits quickly or crashes. Proceeding."
+  preflight_ok=0
+fi
+set -e
+
+###############################################################################
+# Systemd unit generation
+###############################################################################
 SERVICE_NAME="prusaslicer-be.service"
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}"
 WORKDIR="$(pwd)"
 
-# Stop existing unit if present (before overwrite)
-if systemctl list-unit-files | grep -q "^${SERVICE_NAME}"; then
-  info "Stopping existing service if running..."
-  $SUDO systemctl stop "${SERVICE_NAME}" || true
-fi
-
-info "Writing systemd unit to ${SERVICE_PATH}..."
+info "Writing systemd unit -> $SERVICE_PATH"
 UNIT_CONTENT="[Unit]
 Description=prusaslicer-be Bun backend
 After=network-online.target
@@ -119,19 +169,23 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/root/prusaslicer-be
-ExecStart=/root/.bun/bin/bun run src/server.ts
-Environment=HOME=/root
-Environment=NODE_ENV=production
-Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+User=$(id -un)
+Group=$(id -gn)
+WorkingDirectory=${WORKDIR}
+# Use explicit entry, avoid package.json scripts indirection for clarity
+ExecStart=${BUN_BIN} run src/server.ts
 Restart=on-failure
 RestartSec=3
+Environment=HOME=${HOME}
+Environment=NODE_ENV=production
+Environment=PATH=${HOME}/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+
+# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=prusaslicer-be
 
-# Hardening (keep MDWE off for Bun JIT)
+# Hardening (keep JIT allowed)
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
@@ -145,19 +199,73 @@ WantedBy=multi-user.target
 
 printf "%s" "${UNIT_CONTENT}" | $SUDO tee "${SERVICE_PATH}" >/dev/null
 
-info "Reloading systemd and enabling service..."
+info "Unit content written:"
+$SUDO sed -n '1,200p' "${SERVICE_PATH}"
+
+# Verify unit syntax
+info "systemd-analyze verify ${SERVICE_PATH}"
+$SUDO systemd-analyze verify "${SERVICE_PATH}" || warn "systemd-analyze reported issues"
+
+info "daemon-reload + enable"
 $SUDO systemctl daemon-reload
 $SUDO systemctl enable "${SERVICE_NAME}"
 
-info "Starting service..."
-$SUDO systemctl restart "${SERVICE_NAME}"
+###############################################################################
+# If binding to privileged port (e.g., 80) and running as non-root, grant cap
+###############################################################################
+# Autodetect PORT from env file if present
+PORT_VALUE="${PORT:-}"
+if [[ -f .env ]]; then
+  info "Reading .env for PORT if set"
+  # shellcheck disable=SC2046
+  export $(grep -E '^(PORT)=' .env | xargs -d '\n' -r)
+  PORT_VALUE="${PORT:-$PORT_VALUE}"
+fi
+info "Detected PORT=${PORT_VALUE:-unset}"
+if [[ "${PORT_VALUE:-}" =~ ^[0-9]+$ ]] && (( PORT_VALUE < 1024 )); then
+  if [[ $(id -u) -ne 0 ]]; then
+    info "Granting cap_net_bind_service to Bun for low port ${PORT_VALUE}"
+    $SUDO /sbin/setcap 'cap_net_bind_service=+ep' "$BUN_BIN" || warn "setcap failed; low ports may fail"
+    /sbin/getcap "$BUN_BIN" || true
+  else
+    info "Running as root; low port ${PORT_VALUE} is allowed."
+  fi
+fi
+
+###############################################################################
+# Start service and inspect
+###############################################################################
+info "Starting service"
+$SUDO systemctl restart "${SERVICE_NAME}" || true
 
 sleep 1
-if systemctl is-active --quiet "${SERVICE_NAME}"; then
-  log "Service '${SERVICE_NAME}' is running."
-  info "Follow logs: journalctl -u ${SERVICE_NAME} -f"
-else
-  err "Service failed to start. Inspect logs:"
-  echo "  journalctl -u ${SERVICE_NAME} -e -n 200"
+info "systemctl status:"
+$SUDO systemctl status "${SERVICE_NAME}" -l || true
+
+# Force generate some logs before checking journal
+sleep 2
+info "journalctl -u ${SERVICE_NAME} --since -2min:"
+journalctl -u "${SERVICE_NAME}" --since -2min || true
+
+# Final health check loop with backoff and curl if port is known
+tries=10
+while (( tries-- > 0 )); do
+  if systemctl is-active --quiet "${SERVICE_NAME}"; then
+    log "Service ${SERVICE_NAME} active"
+    break
+  fi
+  warn "Service not active yet, retrying..."
+  sleep 1
+done
+
+if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
+  err "Service failed to become active."
+  echo "---- Diagnostics ----"
+  $SUDO systemctl status "${SERVICE_NAME}" -l || true
+  journalctl -u "${SERVICE_NAME}" -b || true
+  echo "Exec binary check:"
+  check_file_exec "$BUN_BIN" || true
   exit 1
 fi
+
+log "Setup complete."
