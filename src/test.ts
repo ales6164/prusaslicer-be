@@ -35,12 +35,13 @@ async function handleSlice(inputFilePath: string) {
 
     try {
 
-        await sliceWithPrusaSlicer(inputFilePath, outPath);
+        const gcode = await sliceWithPrusaSlicer(inputFilePath);
 
         return {
             inPath: inputFilePath,
             outPath,
-            base
+            base,
+            gcode
         }
 
         //const gcode = await Bun.file(outPath).bytes();

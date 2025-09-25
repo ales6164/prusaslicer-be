@@ -9,7 +9,7 @@ ENV_FILE="${REPO_DIR}/.env"
 [[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
 
 SERVICE_USER="${SERVICE_USER:-${SUDO_USER:-$USER}}"
-#[[ "$SERVICE_USER" = "root" ]] && { echo "Refusing to install as root"; exit 1; }
+[[ "$SERVICE_USER" = "root" ]] && { echo "Refusing to install as root"; exit 1; }
 SERVICE_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
 HTTP_PORT="${HTTP_PORT:-80}"
 PORT="${PORT:-8080}"
