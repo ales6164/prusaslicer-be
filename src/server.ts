@@ -113,7 +113,7 @@ async function appFetch(req: Request) {
 
 Bun.serve({
     port: HTTP_PORT,
-    idleTimeout: 60 * 20, // 20 minutes
+    idleTimeout: 255,
     async fetch(req) {
         return appFetch(req);
     }
