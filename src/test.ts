@@ -1,5 +1,5 @@
 import {mkdir} from "node:fs/promises";
-import {sliceWithPrusaSlicer} from "./index.ts";
+import {sliceWithPrusaSlicer} from "./utils.ts";
 
 const ALLOWED_EXT = new Set([".stl", ".3mf", ".amf", ".obj"]);
 const WORKDIR = `${process.env.HOME}/.local/share/prusaslicer-cli`;
