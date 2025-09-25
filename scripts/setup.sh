@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Fedora setup for prusaslicer-be (idempotent, verbose, with git auto-reexec)
 
 set -Eeuo pipefail
 
@@ -50,7 +51,7 @@ else
   warn "Not a git repo; skipping git pull"
 fi
 
-# Ensure persistent journald
+# Ensure persistent journald for logs
 if [[ ! -d /var/log/journal ]]; then
   info "Enable persistent journald"
   $SUDO mkdir -p /var/log/journal
@@ -70,73 +71,74 @@ dnf_install_or_update(){
   log "$pkg ready"
 }
 
-# Packages
+# Base packages
 dnf_install_or_update prusa-slicer
 dnf_install_or_update unzip
 dnf_install_or_update git
-dnf_install_or_update policycoreutils-python-utils || true
+dnf_install_or_update policycoreutils-python-utils || true  # for restorecon if available
 
-# ---------- Bun install/update -> place in /usr/local/bin for systemd ----------
+###############################################################################
+# Bun install/update -> place in /usr/local/bin for systemd (with wrapper fallback)
+###############################################################################
 install_or_update_bun() {
   set -euo pipefail
   local user_bun="$HOME/.bun/bin/bun"
   local sys_bun="/usr/local/bin/bun"
 
-  # Ensure bash, not sh
-  if ! (echo "$BASH_VERSION" >/dev/null 2>&1); then
-    echo "[ERR] This script must run with bash"; exit 1
-  fi
+  # Ensure bash
+  [[ -n "${BASH_VERSION:-}" ]] || { err "Run with bash"; exit 1; }
 
   # Install or upgrade user bun
   if [[ ! -x "$user_bun" ]]; then
-    echo "[INFO] Installing Bun (user) -> $user_bun"
+    info "Installing Bun (user) -> $user_bun"
     curl -fsSL https://bun.sh/install | bash
   else
-    echo "[INFO] Upgrading Bun (user)"
+    info "Upgrading Bun (user)"
     "$user_bun" upgrade || true
   fi
 
-  # Verify user bun runs
-  if [[ ! -x "$user_bun" ]]; then
-    echo "[ERR] Bun not found at $user_bun"; exit 1
-  fi
-  echo "[INFO] user bun --version: $("$user_bun" --version 2>&1)"
+  # Verify user bun
+  [[ -x "$user_bun" ]] || { err "Bun not found at $user_bun"; exit 1; }
+  info "user bun version: $("$user_bun" --version 2>&1)"
 
-  # Copy to system path for systemd
+  # Install to /usr/local/bin for systemd
   if [[ ! -x "$sys_bun" ]] || ! cmp -s "$user_bun" "$sys_bun"; then
-    echo "[INFO] Copying $user_bun -> $sys_bun"
+    info "Installing system bun -> $sys_bun"
     $SUDO install -m 0755 -o root -g root "$user_bun" "$sys_bun"
     command -v restorecon >/dev/null 2>&1 && $SUDO restorecon -v "$sys_bun" || true
   fi
 
-  # Rehash PATH for current shell
+  # Rehash then verify; if binary fails to exec, install a wrapper script
   hash -r || true
-
-  # Deep diagnostics if execution fails
   if ! "$sys_bun" --version >/dev/null 2>&1; then
-    echo "[WARN] Direct exec failed: $sys_bun --version"
-    echo "[INFO] file $sys_bun: $(file -b "$sys_bun" 2>&1)"
-    echo "[INFO] ldd $sys_bun:"
-    ldd "$sys_bun" || true
-    echo "[INFO] mount for /usr/local:"
-    findmnt -no TARGET,OPTIONS /usr/local || true
-    echo "[ERR] Cannot execute $sys_bun; check noexec mount or missing loader (/lib64/ld-linux-x86-64.so.2)."
-    exit 1
+    warn "Direct exec failed at $sys_bun. Falling back to wrapper."
+    info "file: $(file -b "$sys_bun" 2>&1)"
+    command -v ldd >/dev/null 2>&1 && ldd "$sys_bun" || true
+    command -v findmnt >/dev/null 2>&1 && findmnt -no TARGET,OPTIONS /usr/local || true
+
+    $SUDO bash -c "cat > '$sys_bun' <<'WRAP'
+#!/usr/bin/env bash
+exec \"$HOME/.bun/bin/bun\" \"\$@\"
+WRAP
+chmod 0755 '$sys_bun'"
   fi
 
+  # Final verify
+  "$sys_bun" --version >/dev/null 2>&1 || { err "System bun not runnable"; exit 1; }
+  log "Bun ready at $sys_bun"
   echo "$sys_bun"
 }
 
 BUN_BIN="$(install_or_update_bun)"
 info "System bun: $("$BUN_BIN" --version)"
 
-# Deps
+# Dependencies
 info "bun install"
 "$BUN_BIN" install
 log "Dependencies installed"
 
-# Preflight
-info "Preflight run: $BUN_BIN run src/server.ts"
+# Preflight (5s)
+info "Preflight: $BUN_BIN run src/server.ts"
 set +e
 ( setsid bash -c "exec $BUN_BIN run src/server.ts" ) &
 pid=$!
@@ -201,7 +203,7 @@ if [[ -f .env ]]; then
 fi
 if [[ "${PORT_VALUE:-}" =~ ^[0-9]+$ ]] && (( PORT_VALUE < 1024 )) && [[ $(id -u) -ne 0 ]]; then
   info "Granting cap_net_bind_service to bun for port ${PORT_VALUE}"
-  $SUDO /sbin/setcap 'cap_net_bind_service=+ep' "$BUN_BIN" || warn "setcap failed; use non-privileged port"
+  $SUDO /sbin/setcap 'cap_net_bind_service=+ep' /usr/local/bin/bun || warn "setcap failed; use non-privileged port"
 fi
 
 info "Starting service"
