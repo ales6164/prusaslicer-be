@@ -1,4 +1,6 @@
 import {mkdir} from "node:fs/promises";
+import * as path from "node:path";
+import * as os from "node:os";
 
 
 const ACME_DIR = process.env.ACME_DIR || "/var/www/acme";
@@ -40,11 +42,11 @@ export async function handleSlice(form: FormData) {
     if (!ALLOWED_EXT.has(ext)) return {body: {error: `unsupported extension: ${ext}`}, status: 400}
 
     const base = randomBase("job");
-    const inPath = `${WORKDIR}/${base}${ext}`;
-    const outPath = `${WORKDIR}/${base}.gcode`;
+    const inPath = path.join(os.tmpdir(), `${base}${ext}`);
+    const outPath = path.join(os.tmpdir(), `${base}.gcode`);
 
     try {
-        const ok = await Bun.write(inPath, await file.arrayBuffer());
+        const ok = await Bun.write(inPath, file);
 
         if (!ok) throw new Error(`failed to write input file: ${inPath}`)
     } catch (err: any) {
