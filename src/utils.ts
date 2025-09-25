@@ -114,13 +114,15 @@ export async function sliceWithPrusaSlicer(inputPath: string) {
         /*"--load",
         configPath,*/
         "--gcode",
+        "--loglevel",
+        "2",
         inputPath
     ];
 
     const proc = Bun.spawn(args, {stderr: "pipe"});
     const [code, stderr] = await Promise.all([proc.exited, proc.stderr!.text()]);
 
-    if (code !== 0) throw new Error(`PrusaSlicer failed (code ${code}): ${stderr} | ran: Bun.spawn([${args.join(" ")}], {stderr: "pipe", stdout: "pipe"})`);
+    if (code !== 0) throw new Error(`PrusaSlicer failed (code ${code}): ${stderr} | ran: Bun.spawn([${args.join(" ")}], {stderr: "pipe"}) | stdout: ` + await proc.stdout.text());
 
     return await proc.stdout.text()
 }
