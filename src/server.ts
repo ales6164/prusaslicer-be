@@ -93,9 +93,10 @@ async function appFetch(req: Request) {
         }
 
         try {
-            const result = await handleSlice(inPath, outPath);
+            handleSlice(inPath, outPath);
+            //const result = await handleSlice(inPath, outPath);
 
-            return new Response(JSON.stringify(result), {
+            return new Response(JSON.stringify({inPath, outPath}), {
                 status: 200,
                 headers: {
                     "Content-Type": "application/json; charset=utf-8",
