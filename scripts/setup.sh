@@ -25,26 +25,6 @@ SUDO=sudo; [[ ${EUID:-$(id -u)} -eq 0 ]] && SUDO=""
 
 require_cmd(){ command -v "$1" >/dev/null 2>&1 || { err "missing cmd: $1"; exit 127; }; }
 
-dnf_install_or_update() {
-  local pkg="$1"
-  if rpm -q "$pkg" >/dev/null 2>&1; then
-    info "dnf upgrade --refresh -y $pkg"
-    $SUDO dnf upgrade --refresh -y "$pkg" || warn "upgrade $pkg failed or latest"
-  else
-    info "dnf install -y $pkg"
-    $SUDO dnf install -y "$pkg"
-  fi
-  rpm -q "$pkg" >/dev/null 2>&1 || { err "$pkg not installed after dnf"; exit 1; }
-}
-
-check_file_exec() {
-  local p="$1"
-  [[ -f "$p" ]] || { err "not a file: $p"; return 1; }
-  [[ -x "$p" ]] || { err "not executable: $p"; return 1; }
-  file "$p" || true
-  ldd "$p" || true
-}
-
 ###############################################################################
 # Preamble
 ###############################################################################
@@ -54,21 +34,6 @@ info "pwd=$(pwd)"; ls -la
 uname -a || true
 cat /etc/os-release || true
 info "PATH=$PATH"
-
-# journald persistent logs (optional)
-if [[ ! -d /var/log/journal ]]; then
-  info "Enabling persistent journald"
-  $SUDO mkdir -p /var/log/journal
-  $SUDO systemctl restart systemd-journald || true
-fi
-$SUDO systemctl is-active systemd-journald || $SUDO systemctl start systemd-journald || true
-
-# base packages
-dnf_install_or_update prusa-slicer
-dnf_install_or_update unzip
-dnf_install_or_update git
-# SELinux tools if missing (restorecon lives in policycoreutils)
-dnf_install_or_update policycoreutils || true
 
 ###############################################################################
 # Git fast-forward update + one-time re-exec
@@ -102,6 +67,41 @@ if [[ -d .git ]]; then
 else
   warn "Not a git repo; skipping git pull"
 fi
+
+dnf_install_or_update() {
+  local pkg="$1"
+  if rpm -q "$pkg" >/dev/null 2>&1; then
+    info "dnf upgrade --refresh -y $pkg"
+    $SUDO dnf upgrade --refresh -y "$pkg" || warn "upgrade $pkg failed or latest"
+  else
+    info "dnf install -y $pkg"
+    $SUDO dnf install -y "$pkg"
+  fi
+  rpm -q "$pkg" >/dev/null 2>&1 || { err "$pkg not installed after dnf"; exit 1; }
+}
+
+check_file_exec() {
+  local p="$1"
+  [[ -f "$p" ]] || { err "not a file: $p"; return 1; }
+  [[ -x "$p" ]] || { err "not executable: $p"; return 1; }
+  file "$p" || true
+  ldd "$p" || true
+}
+
+# journald persistent logs (optional)
+if [[ ! -d /var/log/journal ]]; then
+  info "Enabling persistent journald"
+  $SUDO mkdir -p /var/log/journal
+  $SUDO systemctl restart systemd-journald || true
+fi
+$SUDO systemctl is-active systemd-journald || $SUDO systemctl start systemd-journald || true
+
+# base packages
+dnf_install_or_update prusa-slicer
+dnf_install_or_update unzip
+dnf_install_or_update git
+# SELinux tools if missing (restorecon lives in policycoreutils)
+dnf_install_or_update policycoreutils || true
 
 ###############################################################################
 # Bun: ensure /usr/local/bin/bun with proper SELinux context
@@ -160,19 +160,19 @@ info "bun install"
 ###############################################################################
 # Preflight: run the app briefly
 ###############################################################################
-EXEC_CMD=("${TARGET_BUN}" run src/server.ts)
-info "Dry-run server preflight (5s timeout)"
-set +e
-( setsid bash -c "cd '$(pwd)'; exec ${EXEC_CMD[*]}" ) &
-app_pid=$!
-sleep 5
-if ps -p "$app_pid" >/dev/null 2>&1; then
-  info "Preflight server running (pid $app_pid). Killing."
-  kill "$app_pid" || true; sleep 1; kill -9 "$app_pid" 2>/dev/null || true
-else
-  warn "Preflight not detected as running after 5s. Proceeding."
-fi
-set -e
+#EXEC_CMD=("${TARGET_BUN}" run src/server.ts)
+#info "Dry-run server preflight (5s timeout)"
+#set +e
+#( setsid bash -c "cd '$(pwd)'; exec ${EXEC_CMD[*]}" ) &
+#app_pid=$!
+#sleep 5
+#if ps -p "$app_pid" >/dev/null 2>&1; then
+#  info "Preflight server running (pid $app_pid). Killing."
+#  kill "$app_pid" || true; sleep 1; kill -9 "$app_pid" 2>/dev/null || true
+#else
+#  warn "Preflight not detected as running after 5s. Proceeding."
+#fi
+#set -e
 
 ###############################################################################
 # systemd unit

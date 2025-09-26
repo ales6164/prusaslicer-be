@@ -7,7 +7,10 @@ import {getPriceAndTimeEstimate} from "./estimates.ts";
 
 //const WORKDIR = `.`;
 const HTTP_PORT = Number(process.env.HTTP_PORT || 80);
-const ALLOWED_EXT = new Set([".stl", ".3mf", ".amf", ".obj"]);
+//const ALLOWED_EXT = new Set([".stl", ".3mf", ".amf", ".obj"]);
+const ALLOWED_EXT = new Set([".stl", ".3mf", ".amf", ".obj", ".step", ".stp", ".ste"]);
+
+// TODO: add .step podporo
 
 // Ensure working directory exists (holds temp files and a copied config)
 //await mkdir(WORKDIR, {recursive: true});
