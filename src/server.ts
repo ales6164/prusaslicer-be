@@ -1,10 +1,16 @@
-import {extOf, handleSlice, randomBase} from "./utils.ts";
-import {extname, relative, isAbsolute, resolve, join} from "node:path";
-import {realpath, readFile, stat} from "node:fs/promises";
+import {extOf, randomBase} from "./utils.ts";
+import {relative, isAbsolute, resolve, join} from "node:path";
+import {realpath, readFile, stat, mkdir} from "node:fs/promises";
 import {tmpdir} from "node:os";
+import {sliceWithPrusaSlicer} from "./slicer.ts";
+import {getPriceAndTimeEstimate} from "./estimates.ts";
 
+//const WORKDIR = `.`;
 const HTTP_PORT = Number(process.env.HTTP_PORT || 80);
 const ALLOWED_EXT = new Set([".stl", ".3mf", ".amf", ".obj"]);
+
+// Ensure working directory exists (holds temp files and a copied config)
+//await mkdir(WORKDIR, {recursive: true});
 
 async function appFetch(req: Request) {
     const u = new URL(req.url);
@@ -92,8 +98,21 @@ async function appFetch(req: Request) {
         }
 
         try {
-            //handleSlice(inPath, outPath);
-            const result = await handleSlice(inPath, outPath);
+            const stdout = await sliceWithPrusaSlicer(inPath, outPath);
+            let estimates  = null
+
+            try {
+                estimates = await getPriceAndTimeEstimate(outPath)
+            } catch (err: any) {
+                return new Response(`error getting price estimate: ${err?.message || String(err)}`, {status: 500, headers});
+            }
+
+            const clientResponse = {
+                uploadId,
+                previewUrl: null,
+                priceEstimate: estimates?.priceEstimate,
+                timeEstimate: estimates?.timeEstimate,
+            }
 
             try {
                 // Write meta
@@ -107,7 +126,13 @@ async function appFetch(req: Request) {
                     createdAt: Date.now(),
                     originalFilePath: inPath,
                     gCodePath: outPath,
-                    sliceResult: result
+                    clientResponse,
+                    sliceResult: {
+                        inPath,
+                        outPath,
+                        stdout,
+                    },
+                    estimates
                 }
                 const ok = await Bun.write(uploadMetaPath, JSON.stringify(meta));
                 if (!ok) return new Response("failed to write to database", {status: 400, headers});
@@ -119,7 +144,7 @@ async function appFetch(req: Request) {
                 return new Response(`error writing database entry: ${err?.message || String(err)}`, {status: 500, headers});
             }
 
-            return new Response(JSON.stringify({id: uploadId}), {
+            return new Response(JSON.stringify(clientResponse), {
                 status: 200,
                 headers: {
                     "Content-Type": "application/json; charset=utf-8",

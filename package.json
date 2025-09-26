@@ -7,7 +7,9 @@
     "start": "bun run src/server.ts",
     "dev": "bun --hot run src/server.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "currency.js": "^2.0.4"
+  },
   "module": "src/server.ts",
   "devDependencies": {
     "@types/bun": "latest"
