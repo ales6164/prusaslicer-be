@@ -16,30 +16,25 @@ async function appFetch(req: Request) {
     };
 
     // Handle preflight OPTIONS request
-    if (req.method === "OPTIONS") {
-        return new Response(null, {status: 204, headers});
-    }
+    if (req.method === "OPTIONS") return new Response(null, {status: 204, headers});
 
     // Handle get gcode
     if (req.method === "GET" && u.pathname === "/") {
-        const fp = u.searchParams.get("path");
-        if (!fp) return new Response("missing ?path", {status: 400, headers});
+        const uploadId = u.searchParams.get("id");
+        if (!uploadId) return new Response("missing id param", {status: 400, headers});
 
-        // Must end with .gcode
-        if (extname(fp).toLowerCase() !== ".gcode") {
-            return new Response("invalid extension", {status: 400, headers});
-        }
+        const uploadMetaPath = join(tmpdir(), `${uploadId}.json`);
 
         const baseTmp = await realpath(tmpdir());
         // If user passed relative path, resolve it *under* tmpdir. If absolute, keep it.
-        const candidate = isAbsolute(fp) ? fp : resolve(baseTmp, fp);
+        const candidate = isAbsolute(uploadMetaPath) ? uploadMetaPath : resolve(baseTmp, uploadMetaPath);
 
         // Canonicalize both sides to defeat symlinks
         let real;
         try {
             // Ensure file exists and is a regular file
             const s = await stat(candidate);
-            if (!s.isFile()) return new Response("not a file", {status: 400, headers});
+            if (!s.isFile()) return new Response("not found", {status: 404, headers});
             real = await realpath(candidate);
         } catch {
             return new Response("not found", {status: 404, headers});
@@ -48,7 +43,7 @@ async function appFetch(req: Request) {
         // Enforce file is inside tmpdir
         const rel = relative(baseTmp, real);
         if (rel.startsWith("..") || isAbsolute(rel)) {
-            return new Response("forbidden path", {status: 403, headers});
+            return new Response("not found", {status: 404, headers});
         }
 
         // Read and return
@@ -67,65 +62,23 @@ async function appFetch(req: Request) {
         const ct = req.headers.get("content-type") || "";
         if (!ct.startsWith("multipart/form-data"))
             return new Response("use multipart/form-data", {status: 415, headers});
-        const form = await req.formData();
 
-        const file = form.get("file");
+        const form = await req.formData(),
+            file = form.get("file");
         if (!(file instanceof File)) return new Response("no file", {status: 400, headers});
 
-        const name = file.name || "model";
-        const ext = extOf(name);
+        const name = file.name || "model",
+            ext = extOf(name);
+        // 100 MB limit
+        if (file.size > 100 * 1024 * 1024) return new Response("request too big", {status: 413, headers});
         if (!ALLOWED_EXT.has(ext)) return new Response(`unsupported extension: ${ext}`, {status: 400, headers});
 
-        const base = randomBase("job");
-        const tmpDir = tmpdir()
-        const inPath = join(tmpDir, `${base}${ext}`);
-        const outPath = join(tmpDir, `${base}.gcode`);
-
-        try {
-            const ok = await Bun.write(inPath, file);
-            if (!ok) return new Response("failed to write input file", {status: 400, headers});
-            if (!await Bun.file(inPath).exists()) return new Response("input file does not exist after writing", {
-                status: 500,
-                headers
-            });
-        } catch (err: any) {
-            return new Response(`error writing input file: ${err?.message || String(err)}`, {status: 500, headers});
-        }
-
-        try {
-            handleSlice(inPath, outPath);
-            //const result = await handleSlice(inPath, outPath);
-
-            return new Response(JSON.stringify({inPath, outPath}), {
-                status: 200,
-                headers: {
-                    "Content-Type": "application/json; charset=utf-8",
-                    ...headers,
-                    /*"Content-Disposition": `attachment; filename="${base}.gcode"`*/
-                }
-            });
-        } catch (err: any) {
-            return new Response(`slicing error: ${err?.message || String(err)}`, {status: 500, headers});
-        }
-    }
-
-    if (req.method === "POST" && u.pathname === "/test") {
-        const ct = req.headers.get("content-type") || "";
-        if (!ct.startsWith("multipart/form-data"))
-            return new Response("use multipart/form-data", {status: 415, headers});
-        const form = await req.formData();
-
-        const file = form.get("file");
-        if (!(file instanceof File)) return new Response("no file", {status: 400, headers});
-
-        const name = file.name || "model";
-        const ext = extOf(name);
-        if (!ALLOWED_EXT.has(ext)) return new Response(`unsupported extension: ${ext}`, {status: 400, headers});
-
-        const base = randomBase("job");
-        const tmpDir = tmpdir()
-        const inPath = join(tmpDir, `${base}${ext}`);
-        const outPath = join(tmpDir, `${base}.gcode`);
+        const base = randomBase("job"),
+            tmpDir = tmpdir(),
+            uploadId = crypto.randomUUID(),
+            uploadMetaPath = join(tmpDir, `${uploadId}.json`),
+            inPath = join(tmpDir, `${base}${ext}`),
+            outPath = join(tmpDir, `${base}.gcode`);
 
         try {
             const ok = await Bun.write(inPath, file);
@@ -140,9 +93,33 @@ async function appFetch(req: Request) {
 
         try {
             //handleSlice(inPath, outPath);
-            //const result = await handleSlice(inPath, outPath);
+            const result = await handleSlice(inPath, outPath);
 
-            return new Response(JSON.stringify({inPath, outPath}), {
+            try {
+                // Write meta
+                const meta = {
+                    requestMeta: {
+                        name,
+                        ext,
+                        size: file.size,
+                        uploadId,
+                    },
+                    createdAt: Date.now(),
+                    originalFilePath: inPath,
+                    gCodePath: outPath,
+                    sliceResult: result
+                }
+                const ok = await Bun.write(uploadMetaPath, JSON.stringify(meta));
+                if (!ok) return new Response("failed to write to database", {status: 400, headers});
+                if (!await Bun.file(inPath).exists()) return new Response("database entry does not exist after writing", {
+                    status: 500,
+                    headers
+                });
+            } catch (err: any) {
+                return new Response(`error writing database entry: ${err?.message || String(err)}`, {status: 500, headers});
+            }
+
+            return new Response(JSON.stringify({id: uploadId}), {
                 status: 200,
                 headers: {
                     "Content-Type": "application/json; charset=utf-8",

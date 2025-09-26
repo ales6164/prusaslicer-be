@@ -1,12 +1,11 @@
-# PrusaSlicer G-code microservice (Bun + Flatpak)
+# PrusaSlicer G-code microservice
 
-## Get started
+## Installation
 
-Tested on Ubuntu 24.04 (LTS) x64.
+Tested on Fedora 42.
 
 ```bash
-sudo apt update
-sudo apt install -y git
+dnf install -y git
 git clone https://github.com/ales6164/prusaslicer-be.git
 cd prusaslicer-be
 bash scripts/setup.sh
@@ -15,6 +14,6 @@ bash scripts/setup.sh
 ### Update
 
 ```bash
-git pull
-bash setup.sh
+cd prusaslicer-be
+bash scripts/setup.sh
 ```
